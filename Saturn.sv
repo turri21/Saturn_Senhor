@@ -102,7 +102,7 @@ module emu
 	output  [1:0] AUDIO_MIX, // 0 - no mix, 1 - 25%, 2 - 50%, 3 - 100% (mono)
 
 	//ADC
-	inout   [3:0] ADC_BUS,
+	//inout   [3:0] ADC_BUS,
 
 	//SD-SPI
 	output        SD_SCK,
@@ -169,7 +169,7 @@ module emu
 	input         OSD_STATUS
 );
 
-	assign ADC_BUS  = 'Z;
+	//assign ADC_BUS  = 'Z;
 	assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 	assign BUTTONS   = {1'b0,osd_btn};
 	assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
@@ -941,7 +941,7 @@ module emu
 		.SDRAM_nWE(SDRAM_nWE),
 		.SDRAM_nRAS(SDRAM_nRAS),
 		.SDRAM_nCAS(SDRAM_nCAS),
-		.SDRAM_CKE(SDRAM_CKE),
+		//.SDRAM_CKE(SDRAM_CKE),
 		
 		.clk(clk_ram),
 		.init(reset),
