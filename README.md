@@ -2,6 +2,8 @@
 
 Tested: Working Video 720p, 1080p & Sound
 
+Important: Senhor does not support Dual SDRAM (at least for now).
+
 # [Sega Saturn](https://en.wikipedia.org/wiki/Sega_Saturn) for MiSTer
 
 ## Hardware Requirements
