@@ -108,33 +108,37 @@ module SCU
 	bit         DSP_HOLD;
 		
 	//IO, interrupts
-	bit         CDQM_N_OLD;
+	bit         CDQM_N_OLD0,CDQM_N_OLD1;
 	bit         CRD_N_OLD;
 	bit  [ 3:0] IVECF_LVL;
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
-			CDQM_N_OLD <= 1;
+			{CDQM_N_OLD0,CDQM_N_OLD1} <= '1;
 			CRD_N_OLD <= 1; 
-		end else if (CE_R) begin
-			CDQM_N_OLD <= &CDQM_N;
-			IVECF_LVL <= CA[3:0];
-		end else if (CE_F) begin
+		end else begin
+			if (CE_R) begin
+				IVECF_LVL <= CA[3:0];
+			end 
+			CDQM_N_OLD0 <= &CDQM_N;
+			CDQM_N_OLD1 <= CDQM_N_OLD0;
 			CRD_N_OLD <= CRD_N;
 		end
 	end
-	wire        CWE = ~&CDQM_N & CDQM_N_OLD & CE_R;
-	wire        CRE = ~CRD_N & CRD_N_OLD & CE_F;
+	wire        CWE = ~CDQM_N_OLD0 & CDQM_N_OLD1;
+	wire        CRE = ~CRD_N & CRD_N_OLD;
 	
 	wire        ABUS_SEL = (~CCS1_N | (CA[24:20] <  5'h1A                      & ~CCS2_N));				//02000000-059FFFFF
 	wire        BBUS_SEL = (          (CA[24:20] >= 5'h1A & CA[24:16] < 9'h1FE & ~CCS2_N));				//05A00000-05FDFFFF
 	wire        ABBUS_SEL = (ABUS_SEL | BBUS_SEL) & (~CRD_N | ~&CDQM_N);
-	bit  [24:0] CPU_CACHE_CA = '1;
-	bit  [31:0] CPU_CACHE_CDI = '1;
-	bit  [ 3:0] CPU_CACHE_CDQMN = '1;
-	bit         CPU_CACHE_CRDN = 1;
-	bit         CPU_CACHE_CCS1N = 1;
-	bit         CPU_CACHE_CCS2N = 1;
-	bit         CPU_CACHE_FILL = 0;
+	bit  [24:0] CPU_CACHE_CA[2] = '{2{'1}};
+	bit  [31:0] CPU_CACHE_CDI[2] = '{2{'1}};
+	bit  [ 3:0] CPU_CACHE_CDQMN[2] = '{2{'1}};
+	bit         CPU_CACHE_CRDN[2] = '{2{1}};
+	bit         CPU_CACHE_CCS1N[2] = '{2{1}};
+	bit         CPU_CACHE_CCS2N[2] = '{2{1}};
+	bit         CPU_CACHE_FILL[2] = '{2{0}};
+	bit         CPU_CACHE_WPOS;
+	bit         CPU_CACHE_RPOS;
 	
 	wire        REG_SEL = ~CCS2_N & CA[24:0] >= 25'h1FE0000 & CA[24:0] <= 25'h1FE00CF;	//25FE0000-25FE00CF
 	wire        REG_WR = REG_SEL & CWE;
@@ -200,11 +204,13 @@ module SCU
 	//ABUS
 	typedef enum bit [3:0] {
 		ABUS_IDLE,  
-		ABUS_ADDR, 
-		ABUS_ACCESS, 
+		ABUS_ADDR_H, 
 		ABUS_WAIT,
+		ABUS_NEXT,
+		ABUS_END,
 		ABUS_DMA_READ,
 		ABUS_DMA_READ_WAIT,
+		ABUS_DMA_READ_NEXT,
 		ABUS_DMA_WRITE,
 		ABUS_DMA_WRITE_WAIT,
 		ABUS_DMA_END
@@ -214,28 +220,32 @@ module SCU
 	bit         CPU_ABUS_REQ;
 	
 	//BBUS
-	typedef enum bit [4:0] {
+	typedef enum bit [5:0] {
 		BBUS_IDLE,  
 		BBUS_ADDR16_H,
 		BBUS_ADDR16_L, 
+		BBUS_ADDR8_WAIT0,BBUS_ADDR8_WAIT1,
 		BBUS_ADDR8_HH, 
 		BBUS_ADDR8_HL, 
 		BBUS_ADDR8_LH, 
 		BBUS_ADDR8_LL, 
 		BBUS_WRITE16_H,
 		BBUS_WRITE16_L,
-		BBUS_WRITE16_END,
+		BBUS_WRITE16_END0,BBUS_WRITE16_END1,BBUS_WRITE16_END2,
 		BBUS_WRITE8_HH,
 		BBUS_WRITE8_HL,
 		BBUS_WRITE8_LH,
 		BBUS_WRITE8_LL,
-		BBUS_WRITE8_END,
-		BBUS_READ16,
+		BBUS_WRITE8_END0,BBUS_WRITE8_END1,BBUS_WRITE8_END2,
+		BBUS_READ16_START,
+		BBUS_READ8_START,
+		BBUS_READ8_WAIT,
 		BBUS_READ8_H,
 		BBUS_READ8_L,
-		BBUS_READ_WAIT,
+		BBUS_READ16_WAIT,
 		BBUS_READ_NEXT,
 		BBUS_READ_NEXT2,
+		BBUS_READ_END0,BBUS_READ_END1,BBUS_READ_END2,
 		BBUS_DMA_RADDR1,
 		BBUS_DMA_RADDR2,
 		BBUS_DMA_READ,
@@ -244,6 +254,7 @@ module SCU
 		BBUS_DMA_WADDR2,
 		BBUS_DMA_WADDR3,
 		BBUS_DMA_WRITE,
+		BBUS_DMA_PAGE,
 		BBUS_DMA_END
 	} BBUSState_t;
 	BBUSState_t BBUS_ST;
@@ -255,11 +266,13 @@ module SCU
 	typedef enum bit [3:0] {
 		CBUS_IDLE,  
 		CBUS_REQUEST, 
+		CBUS_INIT,
 		CBUS_START,
 		CBUS_IND_READ,
 		CBUS_READ, 
 		CBUS_READ_END,
 		CBUS_WRITE,
+		CBUS_REFRESH,
 		CBUS_RELEASE,
 		CBUS_END
 	} CBUSState_t;
@@ -273,7 +286,7 @@ module SCU
 	bit          CBUS_REQ;
 	bit          CBUS_REL;
 	bit          CBUS_WAIT;
-	bit  [ 1: 0] CBUS_RFS;
+	bit  [ 3: 0] CBUS_RFS;
 	
 	bit          CCACHE_FULL[2];
 	wire [ 2: 0] CCACHE_WADDR = CBUS_A[4:2];
@@ -387,7 +400,7 @@ module SCU
 		bit         CPU_BBUS_ACT;
 		bit         ABUS_A1;
 		bit         ABUS_LONG;
-		bit   [2:0] ABUS_WS_CNT;
+		bit   [4:0] ABUS_WAIT_CNT;
 		bit   [1:0] BBUS_WORD;
 		bit         BBUS_WRITE_PAGE;
 		bit         BBUS_WRITE_UNALIGNED;
@@ -399,7 +412,8 @@ module SCU
 		bit         BBUS_WRITE_PROCESS;
 		bit         CBUS_WRITE_PROCESS;
 		bit   [2:0] CBUS_IND_POS;
-		bit         CBUS_RFS_PEND;
+		bit         CBUS_RFS_PEND,CBUS_RAS_PEND;
+		bit   [1:0] CBUS_RAS_CNT;
 		
 		bit         ABUS_DMA_START;
 		bit         ABUS_READ_ACK;
@@ -451,13 +465,15 @@ module SCU
 			
 			DSTA <= DSTA_INIT;
 			
-			CPU_CACHE_CA = '1;
-			CPU_CACHE_CDI = '1;
-			CPU_CACHE_CDQMN = '1;
-			CPU_CACHE_CRDN = 1;
-			CPU_CACHE_CCS1N = 1;
-			CPU_CACHE_CCS2N = 1;
-			CPU_CACHE_FILL = 0;
+			CPU_CACHE_CA = '{2{'1}};
+			CPU_CACHE_CDI = '{2{'1}};
+			CPU_CACHE_CDQMN = '{2{'1}};
+			CPU_CACHE_CRDN = '{2{1}};
+			CPU_CACHE_CCS1N = '{2{1}};
+			CPU_CACHE_CCS2N = '{2{1}};
+			CPU_CACHE_FILL = '{2{0}};
+			CPU_CACHE_WPOS <= 0;
+			CPU_CACHE_RPOS <= 0;
 			
 			ABUS_ST <= ABUS_IDLE;
 			ABUS_DMA_START <= 0;
@@ -558,15 +574,15 @@ module SCU
 //			DMA_READ_DSP <= 0;
 //			DMA_WRITE_DSP <= 0;
 		end else begin
-			CA_INNER = CPU_CACHE_CA;
-			CDI_INNER = CPU_CACHE_CDI;
-			CDQMN_INNER = CPU_CACHE_CDQMN;
-			CRDN_INNER = CPU_CACHE_CRDN;
-			CCS1N_INNER = CPU_CACHE_CCS1N;
-			CCS2N_INNER = CPU_CACHE_CCS2N;
+			CA_INNER = CPU_CACHE_CA[CPU_CACHE_RPOS];
+			CDI_INNER = CPU_CACHE_CDI[CPU_CACHE_RPOS];
+			CDQMN_INNER = CPU_CACHE_CDQMN[CPU_CACHE_RPOS];
+			CRDN_INNER = CPU_CACHE_CRDN[CPU_CACHE_RPOS];
+			CCS1N_INNER = CPU_CACHE_CCS1N[CPU_CACHE_RPOS];
+			CCS2N_INNER = CPU_CACHE_CCS2N[CPU_CACHE_RPOS];
 			
-			ABUS_SEL_INNER = (~CCS1N_INNER | (CA_INNER[24:20] < 5'h19 & ~CCS2N_INNER)) & CPU_CACHE_FILL;				//02000000-058FFFFF
-			BBUS_SEL_INNER = CA_INNER[24:16] >= 9'h1A0 & CA_INNER[24:16] < 9'h1FE & ~CCS2N_INNER & CPU_CACHE_FILL;	//05A00000-05FDFFFF
+			ABUS_SEL_INNER = (~CCS1N_INNER | (CA_INNER[24:20] < 5'h19 & ~CCS2N_INNER)) & CPU_CACHE_FILL[CPU_CACHE_RPOS];				//02000000-058FFFFF
+			BBUS_SEL_INNER = CA_INNER[24:16] >= 9'h1A0 & CA_INNER[24:16] < 9'h1FE & ~CCS2N_INNER & CPU_CACHE_FILL[CPU_CACHE_RPOS];	//05A00000-05FDFFFF
 			
 			if (CE_R) begin
 				ABBUS_SEL_OLD <= ABBUS_SEL;
@@ -574,33 +590,36 @@ module SCU
 					CBUS_WAIT <= 1;
 				end
 
-				if (ABBUS_SEL && !CRD_WR_N && !CPU_CACHE_FILL && CBUS_WAIT) begin
-					CPU_CACHE_CA <= CA;
-					CPU_CACHE_CDI <= CDI;
-					CPU_CACHE_CDQMN <= CDQM_N;
-					CPU_CACHE_CRDN <= CRD_N;
-					CPU_CACHE_CCS1N <= CCS1_N;
-					CPU_CACHE_CCS2N <= CCS2_N;
-					CPU_CACHE_FILL <= 1;
+				if (ABBUS_SEL && !CRD_WR_N && !CPU_CACHE_FILL[CPU_CACHE_WPOS] && CBUS_WAIT) begin
+					CPU_CACHE_CA[CPU_CACHE_WPOS] <= CA;
+					CPU_CACHE_CDI[CPU_CACHE_WPOS] <= CDI;
+					CPU_CACHE_CDQMN[CPU_CACHE_WPOS] <= CDQM_N;
+					CPU_CACHE_CRDN[CPU_CACHE_WPOS] <= CRD_N;
+					CPU_CACHE_CCS1N[CPU_CACHE_WPOS] <= CCS1_N;
+					CPU_CACHE_CCS2N[CPU_CACHE_WPOS] <= CCS2_N;
+					CPU_CACHE_FILL[CPU_CACHE_WPOS] <= 1;
+					CPU_CACHE_WPOS <= ~CPU_CACHE_WPOS;
 					CBUS_WAIT <= 0;
-				end else if (ABBUS_SEL && CRD_WR_N && !CPU_CACHE_FILL && CBUS_WAIT) begin
-					CPU_CACHE_CA <= CA;
-					CPU_CACHE_CDI <= CDI;
-					CPU_CACHE_CDQMN <= CDQM_N;
-					CPU_CACHE_CRDN <= CRD_N;
-					CPU_CACHE_CCS1N <= CCS1_N;
-					CPU_CACHE_CCS2N <= CCS2_N;
-					CPU_CACHE_FILL <= 1;
+				end else if (ABBUS_SEL && CRD_WR_N && !CPU_CACHE_FILL[0] && !CPU_CACHE_FILL[1] && CBUS_WAIT) begin
+					CPU_CACHE_CA[CPU_CACHE_WPOS] <= CA;
+					CPU_CACHE_CDI[CPU_CACHE_WPOS] <= CDI;
+					CPU_CACHE_CDQMN[CPU_CACHE_WPOS] <= CDQM_N;
+					CPU_CACHE_CRDN[CPU_CACHE_WPOS] <= CRD_N;
+					CPU_CACHE_CCS1N[CPU_CACHE_WPOS] <= CCS1_N;
+					CPU_CACHE_CCS2N[CPU_CACHE_WPOS] <= CCS2_N;
+					CPU_CACHE_FILL[CPU_CACHE_WPOS] <= 1;
+					CPU_CACHE_WPOS <= ~CPU_CACHE_WPOS;
 				end 
-				if (CPU_CACHE_FILL && !CPU_ABBUS_PEND && !CPU_ABUS_REQ && !CPU_ABUS_ACT && !CPU_BBUS_REQ && !CPU_BBUS_ACT) begin
+				if (CPU_CACHE_FILL[CPU_CACHE_RPOS] && !CPU_ABBUS_PEND && !CPU_ABUS_REQ && !CPU_ABUS_ACT && !CPU_BBUS_REQ && !CPU_BBUS_ACT) begin
 					CPU_ABUS_REQ <= ABUS_SEL_INNER;
 					CPU_BBUS_REQ <= BBUS_SEL_INNER;
 					CPU_ABBUS_PEND <= 1;
 				end
 				
-				if (CPU_WAIT_CLR && CPU_CACHE_FILL) begin
-					CPU_CACHE_FILL <= 0;
-					if (!CPU_CACHE_CRDN) CBUS_WAIT <= 0;
+				if (CPU_WAIT_CLR && CPU_CACHE_FILL[CPU_CACHE_RPOS]) begin
+					CPU_CACHE_FILL[CPU_CACHE_RPOS] <= 0;
+					CPU_CACHE_RPOS <= ~CPU_CACHE_RPOS;
+					if (!CPU_CACHE_CRDN[CPU_CACHE_RPOS]) CBUS_WAIT <= 0;
 					CPU_ABBUS_PEND <= 0;
 					CPU_WAIT_CLR <= 0;
 				end
@@ -674,7 +693,7 @@ module SCU
 			DMA_WTN_NEXT = (DMA_WTN - DMA_WTN_DEC) & (DMA_TN_MASK[DMA_CH] | {20{DMD[DMA_CH].MOD}});
 			
 			//A-BUS 02000000-058FFFFF
-			if (ABUS_WS_CNT && CE_R) ABUS_WS_CNT <= ABUS_WS_CNT - 3'd1;
+			if (ABUS_WAIT_CNT && CE_R) ABUS_WAIT_CNT <= ABUS_WAIT_CNT - 5'd1;
 			if (DSTA.DACSA && ABUS_DMA_START && CE_R) ABUS_DMA_START <= 0;
 			ABUS_READ_ACK = 0;
 			ABUS_READ_DONE <= 0;
@@ -686,7 +705,29 @@ module SCU
 						ABUS_A1 <= CA_INNER[1];
 						CPU_ABUS_REQ <= 0;
 						CPU_ABUS_ACT <= 1;
-						ABUS_ST <= ABUS_ACCESS;
+//						ABUS_ST <= ABUS_ACCESS;
+						if      (!CCS1N_INNER)  ACS0_N <= 0;
+						else if (!CA_INNER[24]) ACS1_N <= 0;
+						else                    ACS2_N <= 0;
+						
+						AAS_N <= 0;
+						if (!(&CDQMN_INNER[3:2]) || !CRDN_INNER) begin
+							AA <= !CCS1N_INNER ? {1'b1,CA_INNER[24:2],2'b00} : {1'b0,CA_INNER[24:2],2'b00};
+							ADO <= CDI_INNER[31:16];
+							ARD_N <= CRDN_INNER;
+							AWRL_N <= CDQMN_INNER[2];
+							AWRU_N <= CDQMN_INNER[3];
+							ABUS_LONG <= ~&CDQMN_INNER[1:0] | (CA_INNER[24:20] == 5'h18 & ~CA_INNER[19] & ~CCS2N_INNER & ~CRDN_INNER) | (CA_INNER[24:20] < 5'h18 & ~CCS2N_INNER & ~CRDN_INNER) | (~CCS1N_INNER & ~CRDN_INNER);
+						end else begin //end else if (!(&CDQMN_INNER[1:0])) begin
+							AA <= !CCS1N_INNER ? {1'b1,CA_INNER[24:2],2'b10} : {1'b0,CA_INNER[24:2],2'b10};
+							ADO <= CDI_INNER[15:0];
+							ARD_N <= CRDN_INNER;
+							AWRL_N <= CDQMN_INNER[0];
+							AWRU_N <= CDQMN_INNER[1];
+							ABUS_LONG <= 0;
+						end
+						ABUS_WAIT_CNT <= !CCS1N_INNER ? ASR0.A0NW + 5'd4 : !CA_INNER[24] ? ASR0.A1NW + 5'd4 : '0;
+						ABUS_ST <= ABUS_WAIT;
 					end
 					else if (DMA_READ_A && !DMA_RA_ERR && DMA_DSP) begin
 						if (!DSP_DMA_WE) begin
@@ -709,34 +750,25 @@ module SCU
 					end
 				end
 				
-				ABUS_ACCESS: if (CE_R) begin
+				ABUS_ADDR_H: if (CE_R) begin
 					if      (!CCS1N_INNER)  ACS0_N <= 0;
 					else if (!CA_INNER[24]) ACS1_N <= 0;
 					else                    ACS2_N <= 0;
 					
 					AAS_N <= 0;
-					if ((!(&CDQMN_INNER[3:2]) || !CRDN_INNER) && !ABUS_LONG) begin
-						AA <= !CCS1N_INNER ? {1'b1,CA_INNER[24:2],2'b00} : {1'b0,CA_INNER[24:2],2'b00};
-						ADO <= CDI_INNER[31:16];
-						ARD_N <= CRDN_INNER;
-						AWRL_N <= CDQMN_INNER[2];
-						AWRU_N <= CDQMN_INNER[3];
-						ABUS_LONG <= ~&CDQMN_INNER[1:0] | (CA_INNER[24:20] == 5'h18 & ~CA_INNER[19] & ~CCS2N_INNER & ~CRDN_INNER) | (CA_INNER[24:20] < 5'h18 & ~CCS2N_INNER & ~CRDN_INNER) | (~CCS1N_INNER & ~CRDN_INNER);
-					end else begin
-						AA <= !CCS1N_INNER ? {1'b1,CA_INNER[24:2],2'b10} : {1'b0,CA_INNER[24:2],2'b10};
-						ADO <= CDI_INNER[15:0];
-						ARD_N <= CRDN_INNER;
-						AWRL_N <= CDQMN_INNER[0];
-						AWRU_N <= CDQMN_INNER[1];
-						ABUS_LONG <= 0;
-					end
-					ABUS_WS_CNT <= !CCS1N_INNER || !CA_INNER[24] ? 3'd0 : {CA_INNER[16:15],1'b0} - 3'd1/*!CRDN_INNER ? 3'd6 : 3'd1*/;
+					AA <= !CCS1N_INNER ? {1'b1,CA_INNER[24:2],2'b10} : {1'b0,CA_INNER[24:2],2'b10};
+					ADO <= CDI_INNER[15:0];
+					ARD_N <= CRDN_INNER;
+					AWRL_N <= CDQMN_INNER[0];
+					AWRU_N <= CDQMN_INNER[1];
+					ABUS_LONG <= 0;
+					ABUS_WAIT_CNT <= !CCS1N_INNER ? ASR0.A0NW + 5'd4 : !CA_INNER[24] ? ASR0.A1NW + 5'd4 :'0;
 					ABUS_ST <= ABUS_WAIT;
 				end
 				
 				ABUS_WAIT: if (CE_R) begin
 					AAS_N <= 1;
-					if (AWAIT_N && !ABUS_WS_CNT) begin
+					if (AWAIT_N && !ABUS_WAIT_CNT) begin
 						ARD_N <= 1;
 						AWRL_N <= 1;
 						AWRU_N <= 1;
@@ -745,15 +777,23 @@ module SCU
 						ACS2_N <= 1;
 						if (!ABUS_A1) ABUS_BUF[31:16] <= ADI;
 						else          ABUS_BUF[15: 0] <= ADI;
-						if (ABUS_LONG) begin
-							ABUS_A1 <= 1;
-							ABUS_ST <= ABUS_ACCESS;
-						end else begin
-							CPU_WAIT_CLR <= 1;
-							CPU_ABUS_ACT <= 0;
-							ABUS_ST <= ABUS_IDLE;
-						end
+						ABUS_ST <= ABUS_NEXT;
 					end
+				end
+				
+				ABUS_NEXT: if (CE_R) begin
+					if (ABUS_LONG) begin
+						ABUS_A1 <= 1;
+						ABUS_ST <= ABUS_ADDR_H;
+					end else begin
+						ABUS_ST <= ABUS_END;
+					end
+				end
+					
+				ABUS_END: if (CE_R) begin
+					CPU_WAIT_CLR <= 1;
+					CPU_ABUS_ACT <= 0;
+					ABUS_ST <= ABUS_IDLE;
 				end
 				
 				ABUS_DMA_READ: if (CE_R) begin
@@ -766,15 +806,15 @@ module SCU
 						AA <= {DMA_RA[25:2],ABUS_A1,1'b0};
 						AAS_N <= 0;
 						ARD_N <= 0;
-						ABUS_WS_CNT <= DMA_RA[26:24] <= 3'b100 ? 3'd0 : {DMA_RA[16:15],1'b0} - 3'd1;
 						ABUS_READ_ACK = ABUS_A1;
+						ABUS_WAIT_CNT <= !DMA_RA[26] ? ASR0.A0NW + 5'd4 : !DMA_RA[25:24] ? ASR0.A1NW + 5'd4 :'0;
 						ABUS_ST <= ABUS_DMA_READ_WAIT;
 					end
 				end
 				
 				ABUS_DMA_READ_WAIT: if (CE_R) begin
 					AAS_N <= 1;
-					if (AWAIT_N && !ABUS_WS_CNT) begin
+					if (AWAIT_N && !ABUS_WAIT_CNT) begin
 						ARD_N <= 1;
 						AWRL_N <= 1;
 						AWRU_N <= 1;
@@ -785,7 +825,7 @@ module SCU
 						if (!ABUS_A1) begin
 							ABUS_BUF[31:16] <= ADI;
 							ABUS_A1 <= 1;
-							ABUS_ST <= ABUS_DMA_READ;
+							ABUS_ST <= ABUS_DMA_READ_NEXT;
 						end else begin
 							ABUS_BUF[15: 0] <= ADI;
 							ABUS_A1 <= 0;
@@ -796,10 +836,14 @@ module SCU
 							if ((!DMA_DSP && !DMA_RTN) || (DMA_DSP && DSP_DMA_LAST)) begin
 								ABUS_ST <= ABUS_DMA_END;
 							end else begin
-								ABUS_ST <= ABUS_DMA_READ;
+								ABUS_ST <= ABUS_DMA_READ_NEXT;
 							end
 						end
 					end
+				end
+				
+				ABUS_DMA_READ_NEXT: if (CE_R) begin
+					ABUS_ST <= ABUS_DMA_READ;
 				end
 				
 				ABUS_DMA_WRITE: if (CE_R) begin
@@ -816,16 +860,16 @@ module SCU
 						AAS_N <= 0;
 						AWRL_N <= 0;
 						AWRU_N <= 0;
-						ABUS_WS_CNT <= 3'd0;
 						ABUS_DATA_ACK = 1;
 						ABUS_WRITE_PROCESS <= 1;
+						ABUS_WAIT_CNT <= !DMA_WA[26] ? ASR0.A0NW + 5'd4 : !DMA_WA[25:24] ? ASR0.A1NW + 5'd4 :'0;
 						ABUS_ST <= ABUS_DMA_WRITE_WAIT;
 					end
 				end
 				
 				ABUS_DMA_WRITE_WAIT: if (CE_R) begin
 					AAS_N <= 1;
-					if (AWAIT_N && !ABUS_WS_CNT) begin
+					if (AWAIT_N && !ABUS_WAIT_CNT) begin
 						ARD_N <= 1;
 						AWRL_N <= 1;
 						AWRU_N <= 1;
@@ -868,21 +912,24 @@ module SCU
 			case (BBUS_ST)
 				BBUS_IDLE : if (CE_R) begin
 					if (CPU_BBUS_REQ) begin
-						case (CA_INNER[22:21])
-							2'b01: BCSS_N <= 0;
-							2'b10: BCS1_N <= 0;
-							2'b11: BCS2_N <= 0;
-						endcase
-						BDO <= {1'b0,&CDQMN_INNER,2'b00,CA_INNER[20:9]};
-						BDTEN_N <= 1;
-						BADDT_N <= 1;
-					
 						BBUS_A1 <= CA_INNER[1];
 						BBUS_RD <= ~CRDN_INNER;
 						BBUS_WORD <= {~&CDQMN_INNER[3:2],~&CDQMN_INNER[1:0]} | {2{~CRDN_INNER}};
 						CPU_BBUS_REQ <= 0;
 						CPU_BBUS_ACT <= 1;
-						BBUS_ST <= !CA_INNER[22] ? BBUS_ADDR8_HL : BBUS_ADDR16_L;
+						
+						if (CA_INNER[22]) begin
+							case (CA_INNER[21])
+								1'b0: BCS1_N <= 0;
+								1'b1: BCS2_N <= 0;
+							endcase
+							BDO <= {1'b0,&CDQMN_INNER,2'b00,CA_INNER[20:9]};
+							BDTEN_N <= 1;
+							BADDT_N <= 1;
+							BBUS_ST <= BBUS_ADDR16_L;
+						end else begin
+							BBUS_ST <= BBUS_ADDR8_HH;
+						end
 					end else if (DMA_READ_B && !DMA_WRITE_B && ((!DMA_DSP && ((!CBRLS && DMA_WRITE_C) || DMA_WRITE_A)) || (DMA_DSP && !DSP_DMA_WE))) begin
 						case (DMA_RA[22:21])
 							2'b01: BCSS_N <= 0;
@@ -937,16 +984,129 @@ module SCU
 							BDO <= {2'b10,CDQMN_INNER[1:0],4'b0000,CA_INNER[8:1]};
 						BDTEN_N <= 1;
 						BADDT_N <= 1;
-						BBUS_ST <= BBUS_RD ? BBUS_READ16 : BBUS_WORD[1] ? BBUS_WRITE16_H : BBUS_WRITE16_L;
+						BBUS_ST <= BBUS_RD ? BBUS_READ16_START : BBUS_WORD[1] ? BBUS_WRITE16_H : BBUS_WRITE16_L;
 					end
 				end
 				
-				BBUS_ADDR8_HH: if (CE_R) begin
-					BCSS_N <= 0;
-					BDO <= {1'b0,&CDQMN_INNER,2'b00,CA_INNER[20:9]};
+				BBUS_WRITE16_H: if (CE_R) begin
+`ifdef DEBUG
+					DBG_BBUS_WAIT_CNT <= DBG_BBUS_WAIT_CNT + 1'd1;
+`endif
+					BADDT_N <= 0;
+					if (BBUS_RDY) begin
+						BDO <= CDI_INNER[31:16];
+						BDTEN_N <= 0;
+						BREQ_N <= 0;
+						BBUS_WORD[1] <= 0;
+						if (BBUS_WORD[0]) begin
+							BBUS_ST <= BBUS_WRITE16_L;
+						end else if (!CA_INNER[21]) begin //VDP1
+							BBUS_ST <= BBUS_WRITE16_END0;
+						end else begin //VDP2
+							CPU_WAIT_CLR <= 1;
+							BBUS_ST <=  BBUS_WRITE16_END2;
+						end
+`ifdef DEBUG
+					DBG_BBUS_WAIT_CNT <= '0;
+`endif
+					end
+				end
+				
+				BBUS_WRITE16_L: if (CE_R) begin
+`ifdef DEBUG
+					DBG_BBUS_WAIT_CNT <= DBG_BBUS_WAIT_CNT + 1'd1;
+`endif
+					BADDT_N <= 0;
+					if (BBUS_RDY) begin
+						BDO <= CDI_INNER[15:0];
+						BDTEN_N <= 0;
+						BREQ_N <= 0;
+						BBUS_WORD[0] <= 0;
+						if (!CA_INNER[21]) begin //VDP1
+							BBUS_ST <= BBUS_WRITE16_END0;
+						end else begin //VDP2
+							CPU_WAIT_CLR <= 1;
+							BBUS_ST <= BBUS_WRITE16_END2;
+						end
+`ifdef DEBUG
+					DBG_BBUS_WAIT_CNT <= '0;
+`endif
+					end
+				end
+				
+				BBUS_WRITE16_END0: if (CE_R) begin
 					BDTEN_N <= 1;
-					BADDT_N <= 1;
-					BBUS_ST <= BBUS_ADDR8_HL;
+					BCS1_N <= 1;
+					BCS2_N <= 1;
+					BBUS_ST <= BBUS_WRITE16_END1;
+				end
+				
+				BBUS_WRITE16_END1: if (CE_R) begin
+					BBUS_ST <= BBUS_WRITE16_END2;
+				end
+				
+				BBUS_WRITE16_END2: if (CE_R) begin
+					BDTEN_N <= 1;
+					BCS1_N <= 1;
+					BCS2_N <= 1;
+					CPU_BBUS_ACT <= 0;
+					if (!CPU_WAIT_CLR) CPU_WAIT_CLR <= 1;
+					BBUS_ST <= BBUS_IDLE;
+				end
+				
+				BBUS_READ16_START: if (CE_R) begin
+					if (BBUS_RDY) begin
+						BADDT_N <= 0;
+						BREQ_N <= 0;
+						
+						BBUS_ST <= BBUS_READ16_WAIT;
+					end
+//					DBG_BBUS_WAIT_CNT <= '0;
+				end
+					
+				BBUS_READ16_WAIT: if (CE_R) begin
+`ifdef DEBUG
+					DBG_BBUS_WAIT_CNT <= DBG_BBUS_WAIT_CNT + 1'd1;
+`endif
+					if (BBUS_RDY) begin
+						BCS1_N <= 1;
+						BCS2_N <= 1;
+						if (BBUS_WORD[1]) BBUS_BUF[31:16] <= BDI;
+						else              BBUS_BUF[15: 0] <= BDI;
+						
+						BBUS_WORD[1] <= 0;
+						if (BBUS_WORD[1] && BBUS_WORD[0]) begin
+							BBUS_A1 <= 1;
+							BBUS_ST <= CA_INNER[22] && CA_INNER[21] ? BBUS_READ_NEXT : BBUS_READ_NEXT2;
+						end else begin
+							BBUS_ST <= BBUS_READ_END0;
+						end
+`ifdef DEBUG
+					DBG_BBUS_WAIT_CNT <= '0;
+`endif
+					end
+				end
+				
+				BBUS_ADDR8_WAIT0: if (CE_R) begin
+					if (!BRDYS_N) begin
+						BBUS_ST <= BBUS_ADDR8_WAIT1;
+					end
+				end
+				
+				BBUS_ADDR8_WAIT1: if (CE_R) begin
+					BBUS_ST <= BBUS_ADDR8_HH;
+				end
+				
+				BBUS_ADDR8_HH: if (CE_R) begin
+					if (!BRDYS_N) begin
+						BCSS_N <= 0;
+						BDO <= {1'b0,&CDQMN_INNER,2'b00,CA_INNER[20:9]};
+						BDTEN_N <= 1;
+						BADDT_N <= 1;
+						BBUS_ST <= BBUS_ADDR8_HL;
+					end else begin
+						BBUS_ST <= BBUS_ADDR8_WAIT0;
+					end
 				end
 				
 				BBUS_ADDR8_HL: if (CE_R) begin
@@ -967,147 +1127,95 @@ module SCU
 				end
 				
 				BBUS_ADDR8_LL: if (CE_R) begin
-					BBUS_ST <= BBUS_RD ? BBUS_READ8_H : BBUS_WORD[1] ? BBUS_WRITE8_HH : BBUS_WRITE8_LH;
-				end
-				
-				BBUS_WRITE16_H: if (CE_R) begin
-`ifdef DEBUG
-					DBG_BBUS_WAIT_CNT <= DBG_BBUS_WAIT_CNT + 1'd1;
-`endif
-					BADDT_N <= 0;
-					if (BBUS_RDY) begin
-						BDO <= CDI_INNER[31:16];
-						BDTEN_N <= 0;
-						BREQ_N <= 0;
-						BBUS_WORD[1] <= 0;
-						if (BBUS_WORD[0]) begin
-							BBUS_ST <= BBUS_WRITE16_L;
-						end else begin
-							CPU_BBUS_ACT <= 0;
-							CPU_WAIT_CLR <= 1;
-							BBUS_ST <= BBUS_WRITE16_END;
-						end
-`ifdef DEBUG
-					DBG_BBUS_WAIT_CNT <= '0;
-`endif
-					end
-				end
-				
-				BBUS_WRITE16_L: if (CE_R) begin
-					BADDT_N <= 0;
-					if (BBUS_RDY) begin
-						BDO <= CDI_INNER[15:0];
-						BDTEN_N <= 0;
-						BREQ_N <= 0;
-						BBUS_WORD[0] <= 0;
-						CPU_BBUS_ACT <= 0;
-						CPU_WAIT_CLR <= 1;
-						BBUS_ST <= BBUS_WRITE16_END;
-					end
-				end
-				
-				BBUS_WRITE16_END: if (CE_R) begin
-					BDTEN_N <= 1;
-					BCSS_N <= 1;
-					BCS1_N <= 1;
-					BCS2_N <= 1;
-					BBUS_ST <= BBUS_IDLE;
+					BBUS_ST <= BBUS_RD ? BBUS_READ8_START : BBUS_WORD[1] ? BBUS_WRITE8_HH : BBUS_WRITE8_LH;
 				end
 				
 				BBUS_WRITE8_HH: if (CE_R) begin
-`ifdef DEBUG
-					DBG_BBUS_WAIT_CNT <= DBG_BBUS_WAIT_CNT + 1'd1;
-`endif
-					if (BBUS_RDY) begin
-						BDO <= CDI_INNER[31:16];
+//					if (!BRDYS_N) begin
 						BDTEN_N <= 0;
 						BADDT_N <= 0;
-						BREQ_N <= 0;
 						BBUS_ST <= BBUS_WRITE8_HL;
-`ifdef DEBUG
-					DBG_BBUS_WAIT_CNT <= '0;
-`endif
-					end
+//					end
 				end
 				
 				BBUS_WRITE8_HL: if (CE_R) begin
-					BDTEN_N <= 1;
+					BDO <= CDI_INNER[31:16];
+					BDTEN_N <= 0;
+					BADDT_N <= 0;
+					BREQ_N <= 0;
 					
 					BBUS_WORD[1] <= 0;
 					if (BBUS_WORD[0]) begin
 						BBUS_ST <= BBUS_WRITE8_LH;
 					end else begin
-						CPU_BBUS_ACT <= 0;
-						CPU_WAIT_CLR <= 1;
-						BBUS_ST <= BBUS_WRITE8_END;
+						BBUS_ST <= BBUS_WRITE8_END0;
 					end
 				end
 				
 				BBUS_WRITE8_LH: if (CE_R) begin
-					if (BBUS_RDY) begin
-						BDO <= CDI_INNER[15:0];
+					if (!BRDYS_N) begin
 						BDTEN_N <= 0;
 						BADDT_N <= 0;
-						BREQ_N <= 0;
 						BBUS_ST <= BBUS_WRITE8_LL;
 					end
 				end
 				
 				BBUS_WRITE8_LL: if (CE_R) begin
-					BDTEN_N <= 1;
+					BDO <= CDI_INNER[15:0];
+					BDTEN_N <= 0;
+					BADDT_N <= 0;
+					BREQ_N <= 0;
 
 					BBUS_WORD[0] <= 0;
-					CPU_BBUS_ACT <= 0;
-					CPU_WAIT_CLR <= 1;
-					BBUS_ST <= BBUS_WRITE8_END;
+					BBUS_ST <= BBUS_WRITE8_END0;
 				end
 				
-				BBUS_WRITE8_END: if (CE_R) begin
+				BBUS_WRITE8_END0: if (CE_R) begin
 					BDTEN_N <= 1;
 					BCSS_N <= 1;
-					BCS1_N <= 1;
-					BCS2_N <= 1;
+					BBUS_ST <= BBUS_WRITE8_END1;
+				end
+				
+				BBUS_WRITE8_END1: if (CE_R) begin
+					BBUS_ST <= BBUS_WRITE8_END2;
+				end
+				
+				BBUS_WRITE8_END2: if (CE_R) begin
+					CPU_BBUS_ACT <= 0;
+					CPU_WAIT_CLR <= 1;
 					BBUS_ST <= BBUS_IDLE;
 				end
 				
-				BBUS_READ16,
-				BBUS_READ8_H: if (CE_R) begin
-					if (BBUS_RDY) begin
+				BBUS_READ8_START: if (CE_R) begin
+//					if (!BRDYS_N) begin
 						BADDT_N <= 0;
 						BREQ_N <= 0;
 						
-						BBUS_ST <= !CA_INNER[22] ? BBUS_READ8_L : BBUS_READ_WAIT;
+						BBUS_ST <= BBUS_READ8_WAIT;
+//					end
+				end
+				
+				BBUS_READ8_WAIT: if (CE_R) begin
+					if (!BRDYS_N) begin
+						BBUS_ST <= BBUS_READ8_H;
 					end
-//					DBG_BBUS_WAIT_CNT <= '0;
+				end
+				
+				BBUS_READ8_H: if (CE_R) begin
+					BBUS_ST <= BBUS_READ8_L;
 				end
 				
 				BBUS_READ8_L: if (CE_R) begin
-					BBUS_ST <= BBUS_READ_WAIT;
-				end
+					BCSS_N <= 1;
+					if (BBUS_WORD[1]) BBUS_BUF[31:16] <= BDI;
+					else              BBUS_BUF[15: 0] <= BDI;
 					
-				BBUS_READ_WAIT: if (CE_R) begin
-`ifdef DEBUG
-					DBG_BBUS_WAIT_CNT <= DBG_BBUS_WAIT_CNT + 1'd1;
-`endif
-					if (BBUS_RDY) begin
-						BCSS_N <= 1;
-						BCS1_N <= 1;
-						BCS2_N <= 1;
-						if (BBUS_WORD[1]) BBUS_BUF[31:16] <= BDI;
-						else              BBUS_BUF[15: 0] <= BDI;
-						
-						BBUS_WORD[1] <= 0;
-						if (BBUS_WORD[1] && BBUS_WORD[0]) begin
-							BBUS_A1 <= 1;
-							BBUS_ST <= CA_INNER[22] && CA_INNER[21] ? BBUS_READ_NEXT : BBUS_READ_NEXT2;//BBUS_ADDR16_H;
-						end else begin
-							CPU_WAIT_CLR <= 1;
-							CPU_BBUS_ACT <= 0;
-							BBUS_ST <= BBUS_IDLE;
-						end
-`ifdef DEBUG
-					DBG_BBUS_WAIT_CNT <= '0;
-`endif
+					BBUS_WORD[1] <= 0;
+					if (BBUS_WORD[1] && BBUS_WORD[0]) begin
+						BBUS_A1 <= 1;
+						BBUS_ST <= BBUS_READ_NEXT2;
+					end else begin
+						BBUS_ST <= BBUS_READ_END0;
 					end
 				end
 				
@@ -1117,6 +1225,20 @@ module SCU
 				
 				BBUS_READ_NEXT2: if (CE_R) begin
 					BBUS_ST <= !CA_INNER[22] ? BBUS_ADDR8_HH : BBUS_ADDR16_H;
+				end
+				
+				BBUS_READ_END0: if (CE_R) begin
+					BBUS_ST <= BBUS_READ_END1;
+				end
+				
+				BBUS_READ_END1: if (CE_R) begin
+					BBUS_ST <= BBUS_READ_END2;
+				end
+				
+				BBUS_READ_END2: if (CE_R) begin
+					CPU_WAIT_CLR <= 1;
+					CPU_BBUS_ACT <= 0;
+					BBUS_ST <= BBUS_IDLE;
 				end
 				
 				BBUS_DMA_RADDR1: if (CE_R) begin
@@ -1228,6 +1350,8 @@ module SCU
 							BDO <= {1'b0,1'b0,2'b11,DMA_WA[20:9]};
 							BADDT_N <= 1;
 							BBUS_ST <= BBUS_DMA_WADDR0;
+						end else if (DMA_WA[8:1] == 8'd255) begin
+							BBUS_ST <= BBUS_DMA_PAGE;
 						end else if (DMA_BUF_SIZE && (DMA_BUF_SIZE[2:1] || (DMA_WTN_LESS2 && DMA_WTN[0]))) begin
 							case (DMA_WA[0])
 								1'b0: BDO <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1]};
@@ -1243,6 +1367,12 @@ module SCU
 						end
 						BBUS_WRITE_UNALIGNED <= 0;
 					end
+				end
+				
+				BBUS_DMA_PAGE: if (CE_R) begin
+					BDO <= {1'b0,1'b0,2'b11,DMA_WA[20:9]};
+					BADDT_N <= 1;
+					BBUS_ST <= BBUS_DMA_WADDR0;
 				end
 					
 				BBUS_DMA_END: if (CE_R) begin
@@ -1266,8 +1396,7 @@ module SCU
 				CBUS_IDLE: if (CE_R) begin
 					if ((DMA_READ_C && !DMA_WRITE_C && !DMA_WA_ERR && (!DMA_WRITE_A || ABUS_ST == ABUS_IDLE) && (!DMA_WRITE_B || BBUS_ST == BBUS_IDLE) && !DMA_IND) || 
 					    (DMA_WRITE_C && !DMA_READ_C && !DMA_RA_ERR && (!DMA_READ_A || ABUS_ST == ABUS_IDLE) && (!DMA_READ_B || BBUS_ST == BBUS_IDLE) && !DMA_IND)) begin
-						if (!CBRLS) CBUS_DMA_START <= 1;
-						CBUS_ST <= CBRLS ? CBUS_REQUEST : CBUS_START;
+						CBUS_ST <= CBRLS ? CBUS_REQUEST : CBUS_INIT;
 					end
 					else if (DMA_READ_C && !DMA_WRITE_C && DMA_IND) begin
 						CBUS_ST <= CBUS_REQUEST;
@@ -1278,47 +1407,81 @@ module SCU
 				end
 				
 				CBUS_REQUEST: if (CE_R) begin
-					CBUS_DMA_START <= 1;
-					CBUS_ST <= CBUS_START;
+					CBUS_ST <= CBUS_INIT;
+				end
+				
+				CBUS_INIT: if (CE_R) begin
+					if (!CBRLS) begin
+						if (!DMA_IND) CBUS_DMA_START <= 1;
+						CBUS_ST <= CBUS_START;
+					end
 				end
 				
 				CBUS_START: if (CE_R) begin
-					if (!CBRLS) begin
-						if (DMA_READ_C && DMA_IND) begin
-							CBUS_A <= {DMA_IA[26:4],4'b0000};
-							CBUS_RD <= 1;
-							CBUS_CS <= 1;
-							CBUS_IND_POS <= '0;
-							CBUS_ST <= CBUS_IND_READ;
-						end
-						else if (DMA_READ_C && !DMA_IND) begin
-							CBUS_A <= {DMA_RA[26:4],4'b0000};
-							CBUS_RD <= 1;
-							CBUS_CS <= 1;
-							CCACHE_RADDR <= DMA_RA[4:2];
-							CCACHE_FULL <= '{2{0}};
-							CBUS_READ_ACK = 1;
-							CBUS_ST <= CBUS_READ;
-						end
-						else if (DMA_WRITE_C && DMA_BUF_SIZE && (DMA_BUF_SIZE[2] || DMA_WA[1:0])) begin
-							CBUS_A <= {DMA_WA[26:2],2'b00};
+					if (DMA_READ_C && DMA_IND) begin
+						CBUS_A <= {DMA_IA[26:4],4'b0000};
+						CBUS_RD <= 1;
+						CBUS_CS <= 1;
+						CBUS_IND_POS <= '0;
+						CBUS_ST <= CBUS_IND_READ;
+					end
+					else if (DMA_READ_C && !DMA_IND) begin
+						CBUS_A <= {DMA_RA[26:4],4'b0000};
+						CBUS_RD <= 1;
+						CBUS_CS <= 1;
+						CCACHE_RADDR <= DMA_RA[4:2];
+						CCACHE_FULL <= '{2{0}};
+						CBUS_READ_ACK = 1;
+						CBUS_ST <= CBUS_READ;
+					end
+					else if (DMA_WRITE_C && DMA_BUF_SIZE && (DMA_BUF_SIZE[2] || DMA_WA[1:0] || (DMA_WTN_LESS4 && DMA_WTN[1:0]))) begin
+						CBUS_A <= {DMA_WA[26:2],2'b00};
+						case (DMA_WA[1:0])
+							2'b00: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1],DMA_BUF[DMA_BUF_RPOS+2],DMA_BUF[DMA_BUF_RPOS+3]};
+							2'b01: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1],DMA_BUF[DMA_BUF_RPOS+2]};
+							2'b10: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1]};
+							2'b11: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0]};
+						endcase
+						if (DMA_DSP)
+							CBUS_WR <= 4'b1111;
+						else if (DMA_WTN_LESS4)
 							case (DMA_WA[1:0])
-								2'b00: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1],DMA_BUF[DMA_BUF_RPOS+2],DMA_BUF[DMA_BUF_RPOS+3]};
-								2'b01: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1],DMA_BUF[DMA_BUF_RPOS+2]};
-								2'b10: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1]};
-								2'b11: CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+0]};
+								2'b00: case (DMA_WTN[1:0])
+									2'b00: ;
+									2'b01: CBUS_WR <= 4'b1000;
+									2'b10: CBUS_WR <= 4'b1100;
+									2'b11: CBUS_WR <= 4'b1110;
+								endcase
+								2'b01: case (DMA_WTN[1:0])
+									2'b00: ;
+									2'b01: CBUS_WR <= 4'b0100;
+									2'b10: CBUS_WR <= 4'b0110;
+									2'b11: CBUS_WR <= 4'b0111;
+								endcase
+								2'b10: case (DMA_WTN[1:0])
+									2'b00: ;
+									2'b01: CBUS_WR <= 4'b0010;
+									2'b10: CBUS_WR <= 4'b0011;
+									2'b11: CBUS_WR <= 4'b0011;
+								endcase
+								2'b11: case (DMA_WTN[1:0])
+									2'b00: ;
+									2'b01: CBUS_WR <= 4'b0001;
+									2'b10: CBUS_WR <= 4'b0001;
+									2'b11: CBUS_WR <= 4'b0001;
+								endcase
 							endcase
-							case (DMA_WA[1:0])//TODO: WTN < 4
+						else
+							case (DMA_WA[1:0])
 								2'b00: CBUS_WR <= 4'b1111;
 								2'b01: CBUS_WR <= 4'b0111;
 								2'b10: CBUS_WR <= 4'b0011;
 								2'b11: CBUS_WR <= 4'b0001;
 							endcase
-							CBUS_CS <= 1;
-							CBUS_WRITE_PROCESS <= 1;
-							CBUS_DATA_ACK = 1;
-							CBUS_ST <= CBUS_WRITE;
-						end
+						CBUS_CS <= 1;
+						CBUS_WRITE_PROCESS <= 1;
+						CBUS_DATA_ACK = 1;
+						CBUS_ST <= CBUS_WRITE;
 					end
 				end
 				
@@ -1339,13 +1502,21 @@ module SCU
 				CBUS_READ: if (CE_R) begin
 					if (ECWAIT_N && !CCACHE_FULL[CBUS_A[4]]) begin
 						if (CBUS_RFS_PEND) begin
-							CBUS_RFS <= CBUS_RFS + 2'd1;
-							if (CBUS_RFS == 2'd3) CBUS_RFS_PEND <= 0;
+							CBUS_RFS <= CBUS_RFS + 4'd1;
+							if (CBUS_RFS == 4'd15) CBUS_RFS_PEND <= 0;
+						end else if (CBUS_RAS_PEND) begin
+							CBUS_RFS <= CBUS_RFS + 4'd1;
+							if (CBUS_RFS == 4'd3) begin
+								CBUS_RFS <= '0;
+								CBUS_RAS_PEND <= 0;
+							end
 						end else begin
 							CBUS_A <= CBUS_A + 27'd4;
 							CBUS_RD <= 1;
-							if (CBUS_A[10:2] == 9'h1FF && !DMA_DSP && !FAST) begin
+							/*if (CBUS_A[10:2] == 9'h1FF && !DMA_DSP && !FAST) begin
 								CBUS_RFS_PEND <= 1;
+							end else*/ if (CBUS_A[9:2] == 8'hFF && !DMA_DSP && !FAST) begin
+								CBUS_RAS_PEND <= 1;
 							end
 						end
 						if (CBUS_A[3:2] == 2'b11) begin
@@ -1373,10 +1544,15 @@ module SCU
 							CBUS_A <= CBUS_A + 27'd4;
 							CBUS_RD <= 1;
 						end
-						else if ((DSTA.DACSA || DSTA.DACSB || DSTA.DACSD) && ECWAIT_N) begin
-							CBUS_DMA_START <= 0;
-							CBUS_CS <= 0;
-							CBUS_ST <= CBUS_RELEASE;
+						else if (DSTA.DACSA || DSTA.DACSB || DSTA.DACSD) begin
+							CBUS_RD <= 0;
+							if (FAST) begin
+								CBUS_DMA_START <= 0;
+								CBUS_CS <= 0;
+								CBUS_ST <= CBUS_RELEASE;
+							end else begin
+								CBUS_ST <= CBUS_REFRESH;
+							end
 						end
 					end
 				end
@@ -1385,31 +1561,57 @@ module SCU
 					if (ECWAIT_N) begin
 						CBUS_WRITE_PROCESS <= 0;
 						if (CBUS_RFS_PEND) begin
-							CBUS_RFS <= CBUS_RFS + 2'd1;
-							if (CBUS_RFS == 2'd3) CBUS_RFS_PEND <= 0;
+							CBUS_RFS <= CBUS_RFS + 4'd1;
+							if (CBUS_RFS == 4'd7) CBUS_RFS_PEND <= 0;
+						end else if (CBUS_RAS_PEND) begin
+							CBUS_RFS <= CBUS_RFS + 4'd1;
+							if (CBUS_RFS == 4'd3) begin
+								CBUS_RFS <= '0;
+								CBUS_RAS_PEND <= 0;
+							end
 						end else if (DMA_BUF_SIZE && (DMA_BUF_SIZE[2] || (DMA_WTN_LESS4 && DMA_WTN[1:0] && DMA_BUF_SIZE >= {1'b0,DMA_WTN[1:0]}))) begin
 							CBUS_A <= {DMA_WA[26:2],2'b00};
 							CBUS_D <= {DMA_BUF[DMA_BUF_RPOS+0],DMA_BUF[DMA_BUF_RPOS+1],DMA_BUF[DMA_BUF_RPOS+2],DMA_BUF[DMA_BUF_RPOS+3]};
-							CBUS_WR <= 4'b1111;
-							if (DMA_WTN_LESS4)
+							if (DMA_DSP)
+								CBUS_WR <= 4'b1111;
+							else if (DMA_WTN_LESS4)
 								case (DMA_WTN[1:0])
 									2'b00: ;
 									2'b01: CBUS_WR <= 4'b1000;
 									2'b10: CBUS_WR <= 4'b1100;
 									2'b11: CBUS_WR <= 4'b1110;
 								endcase
+							else
+								CBUS_WR <= 4'b1111;
 							CBUS_WRITE_PROCESS <= 1;
 							CBUS_DATA_ACK = 1;
 							
-							if (CBUS_A[10:2] == 9'h1FF && !DMA_DSP && !FAST) begin
+							/*if (CBUS_A[10:2] == 9'h1FF && !DMA_DSP && !FAST) begin
 								CBUS_RFS_PEND <= 1;
+							end else*/ if (CBUS_A[9:2] == 8'hFF && !DMA_DSP && !FAST) begin
+								CBUS_RAS_PEND <= 1;
 							end
 						end
 						else if ((!DMA_DSP && !DMA_WTN) || (DMA_DSP && DMA_LAST)) begin
-							CBUS_DMA_START <= 0;
-							CBUS_CS <= 0;
-							CBUS_ST <= CBUS_RELEASE;
+							CBUS_WR <= 4'b0000;
+							if (FAST) begin
+								CBUS_DMA_START <= 0;
+								CBUS_CS <= 0;
+								CBUS_ST <= CBUS_RELEASE;
+							end else begin
+								CBUS_ST <= CBUS_REFRESH;
+							end
 						end
+					end
+				end
+				
+				CBUS_REFRESH: if (CE_R) begin
+					CBUS_RFS <= CBUS_RFS + 4'd1;
+					if (CBUS_RFS == 4'd3) begin
+						CBUS_RFS <= '0;
+						CBUS_DMA_START <= 0;
+						CBUS_CS <= 0;
+						CBUS_ST <= CBUS_RELEASE;
 					end
 				end
 				
@@ -1929,6 +2131,8 @@ module SCU
 				DEN[0].GO <= 0;
 				DEN[1].GO <= 0;
 				DEN[2].GO <= 0;
+			end
+			if (CE_R) begin
 				if (REG_WR) begin
 					case ({CA[7:2],2'b00})
 						8'h00: begin
@@ -2128,7 +2332,7 @@ module SCU
 	assign ECRD_WR_N = ~|CBUS_WR;
 	assign ECRD_N = ~CBUS_RD;
 	assign ECCS3_N = ~CBUS_CS;
-	assign ECRFS = |CBUS_RFS;
+	assign ECRFS = |CBUS_RFS & CBUS_RFS[0];
 	
 	//DSP
 	bit DSP_CE;
@@ -2491,7 +2695,7 @@ module SCU
 			if (!IVEC_WAIT && !IVEC_STATE && !CIVECF_N && !CRD_N) begin
 				IVEC_STATE <= 1;
 				IVEC_WAIT <= 1;
-				IVEC_WAIT_CNT <= 3'd4;
+				IVEC_WAIT_CNT <= FAST ? 3'd0 : 3'd6;
 			end else if (IVEC_WAIT && IVEC_STATE) begin
 				IVEC_WAIT_CNT <= IVEC_WAIT_CNT - 3'd1;
 				if (IVEC_WAIT_CNT == 3'd0) begin
@@ -2507,6 +2711,7 @@ module SCU
 	
 	//Registers
 	bit [31:0] REG_DO;
+	bit        REG_WAIT;
 	always @(posedge CLK or negedge RST_N) begin
 		if (!RST_N) begin
 			T0C <= RSEL_INIT;
@@ -2516,6 +2721,7 @@ module SCU
 			RSEL <= RSEL_INIT;
 			
 			REG_DO <= '0;
+			REG_WAIT <= 0;
 		end
 		else if (!RES_N) begin
 			T0C <= RSEL_INIT;
@@ -2523,35 +2729,25 @@ module SCU
 			T1MD <= T1MD_INIT;
 			IMS <= IMS_INIT;
 			RSEL <= RSEL_INIT;
-		end else if (CE_R) begin
+		end else begin
+		if (CE_R) begin
 			if (REG_WR) begin
 				case ({CA[7:2],2'b00})
-					8'h90: begin
-						T0C <= CDI & T0C_WMASK;
-					end
-					8'h94: begin
-						T1S <= CDI & T1S_WMASK;
-					end
-					8'h98: begin
-						T1MD <= CDI & T1MD_WMASK;
-					end
-					8'hA0: begin
-						IMS <= CDI & IMS_WMASK;
-					end
-					
-					8'hB0: begin
-						ASR0 <= CDI & ASR0_WMASK;
-					end
-					8'hB4: begin
-						ASR1 <= CDI & ASR1_WMASK;
-					end
-					8'hC4: begin
-						RSEL <= CDI[0] & RSEL_WMASK[0];
-					end
+					8'h90: T0C <= CDI & T0C_WMASK;
+					8'h94: T1S <= CDI & T1S_WMASK;
+					8'h98: T1MD <= CDI & T1MD_WMASK;
+					8'hA0: IMS <= CDI & IMS_WMASK;
+					8'hB0: ASR0 <= CDI & ASR0_WMASK;
+					8'hB4: ASR1 <= CDI & ASR1_WMASK;
+					8'hC4: RSEL <= CDI[0] & RSEL_WMASK[0];
 					default:;
 				endcase
 			end
-		end else if (CE_F) begin
+			
+			REG_WAIT <= 0;
+			if (REG_WR || REG_RD) REG_WAIT <= ~FAST;
+		end
+		/*if (CE_F)*/ begin
 			if (REG_RD) begin
 				case ({CA[7:2],2'b00})
 					8'h00: REG_DO <= DR[0] & DxR_RMASK;
@@ -2571,10 +2767,12 @@ module SCU
 					8'hB4: REG_DO <= ASR1 & ASR1_RMASK;
 					
 					8'hC4: REG_DO <= RSEL & RSEL_RMASK;
+					8'hC8: REG_DO <= 32'h00000004;
 					
 					default: REG_DO <= '0;
 				endcase
 			end
+		end
 		end
 	end
 	
@@ -2583,6 +2781,6 @@ module SCU
 	             !CIVECF_N ? {24'h000000,IVEC_DO} :
 					 DSP_SEL   ? DSP_DO : 
 					 REG_DO;
-	assign CWAIT_N = ~(CBUS_WAIT | IVEC_WAIT);
+	assign CWAIT_N = ~(CBUS_WAIT | IVEC_WAIT | REG_WAIT);
 	
 endmodule

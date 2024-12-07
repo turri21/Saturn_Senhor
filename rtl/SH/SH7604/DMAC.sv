@@ -22,9 +22,6 @@ module SH7604_DMAC (
 	input       [3:0] IBUS_BA,
 	input             IBUS_WE,
 	input             IBUS_REQ,
-	input             IBUS_BURST,
-	input             IBUS_LOCK,
-	output            IBUS_BUSY,
 	output            IBUS_ACT,
 	
 	output     [31:0] DBUS_A,
@@ -36,8 +33,6 @@ module SH7604_DMAC (
 	output            DBUS_LOCK,
 	output            DBUS_BURST,
 	input             DBUS_WAIT,
-	
-	input             EBUS_END,
 	
 	input             BSC_ACK,
 	
@@ -142,7 +137,6 @@ module SH7604_DMAC (
 		end
 	end
 	
-	
 	bit         DMA_REQ;
 	bit         DMA_REQ_CLR;
 	bit         DMA_CH;
@@ -156,9 +150,9 @@ module SH7604_DMAC (
 		else if (CE_R) begin
 			if (!DMA_REQ) begin
 				if ((CH_REQ[0] && CH_EN[0] && CH_AVAIL[0]) && 
-				    (CH_REQ[1] && CH_EN[1] && CH_AVAIL[1])) begin
+				    (CH_REQ[1] && CH_EN[1] && CH_AVAIL[1]) && DMAOR.PR) begin
 					DMA_REQ <= 1;
-					DMA_CH <= /*DMAOR.PR &*/ RB_PRIO;
+					DMA_CH <= RB_PRIO;
 				end
 				else if (CH_REQ[0] && CH_EN[0] && CH_AVAIL[0]) begin
 					DMA_REQ <= 1;
@@ -176,7 +170,6 @@ module SH7604_DMAC (
 		end
 	end
 	
-
 	bit         DMA_WR;
 	bit         DMA_RD;
 	bit         DMA_BURST;
@@ -215,7 +208,7 @@ module SH7604_DMAC (
 			CH_REQ_CLR[0] <= 0;
 			CH_REQ_CLR[1] <= 0;
 			DMA_REQ_CLR <= 0;
-			if (DMA_REQ && !DMA_RD && !DMA_WR && (!DBUS_WAIT || EBUS_END) && !IBUS_LOCK && CE_F) begin
+			if (DMA_REQ && !DMA_RD && !DMA_WR && CE_F) begin
 				if (!CHCR[DMA_CH].TA || (CHCR[DMA_CH].TA && !CHCR[DMA_CH].AM)) begin
 					DMA_RD <= 1;
 					LW_CNT <= &CHCR[DMA_CH].TS ? 2'd3 : 2'd0;
@@ -243,6 +236,9 @@ module SH7604_DMAC (
 						DMA_LOCK <= CHCR[DMA_CH].TB | &CHCR[DMA_CH].TS;
 						LW_CNT <= &CHCR[DMA_CH].TS ? 2'd3 : 2'd0;
 						CH_REQ_CLR[DMA_CH] <= 1;
+						if (!TCR_NEXT) begin
+							DMA_LOCK <= 0;
+						end
 					end
 					else if (CHCR[DMA_CH].TA && !CHCR[DMA_CH].AM && !LW_CNT) begin
 						CH_REQ_CLR[DMA_CH] <= 1;
@@ -336,7 +332,7 @@ module SH7604_DMAC (
 		end
 	end
 	
-	wire DMA_ACT = DMA_RD | DMA_WR;
+	wire DMA_ACCESS = DMA_RD | DMA_WR;
 	
 	bit [31:0] DBUS_DO_TEMP;
 	always_comb begin
@@ -360,17 +356,17 @@ module SH7604_DMAC (
 	
 	assign DBUS_A = DMA_RD ? SAR[DMA_CH] : 
 	                DMA_WR ? DAR[DMA_CH] : 
-	                IBUS_A;
-	assign DBUS_DO = DMA_RD || DMA_WR ? DBUS_DO_TEMP : IBUS_DI;
+	                '0;
+	assign DBUS_DO = DBUS_DO_TEMP;
 	assign DBUS_BA = DMA_RD ? BAFromAddr(SAR[DMA_CH][1:0],CHCR[DMA_CH].TS) : 
 	                 DMA_WR ? BAFromAddr(DAR[DMA_CH][1:0],CHCR[DMA_CH].TS) : 
-	                 IBUS_BA;
+	                 '0;
 	assign DBUS_WE = DMA_RD ? 1'b0 : 
 	                 DMA_WR ? 1'b1 : 
-	                 IBUS_WE;
-	assign DBUS_REQ = DMA_ACT | IBUS_REQ;
-	assign DBUS_BURST = (DMA_ACT & DMA_BURST) | (~DMA_ACT & IBUS_BURST);
-	assign DBUS_LOCK  = (DMA_ACT & DMA_LOCK)  | (~DMA_ACT & IBUS_LOCK);
+	                 1'b0;
+	assign DBUS_REQ = DMA_ACCESS;
+	assign DBUS_BURST = DMA_BURST;
+	assign DBUS_LOCK  = DMA_LOCK;
 	
 	assign DACK0 = (BSC_ACK & !DMA_CH & ((DMA_RD & (~CHCR[0].AM | CHCR[0].TA)) | (DMA_WR & (CHCR[0].AM | CHCR[0].TA)))) ^ ~CHCR[0].AL;
 	assign DACK1 = (BSC_ACK &  DMA_CH & ((DMA_RD & (~CHCR[1].AM | CHCR[1].TA)) | (DMA_WR & (CHCR[1].AM | CHCR[1].TA)))) ^ ~CHCR[1].AL;
@@ -453,7 +449,6 @@ module SH7604_DMAC (
 	end
 	
 	assign IBUS_DO = REG1_SEL || REG2_SEL ? REG_DO : '0;
-	assign IBUS_BUSY = DMA_ACT | DBUS_WAIT;
 	assign IBUS_ACT = REG1_SEL | REG2_SEL;
 	
 

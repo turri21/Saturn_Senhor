@@ -57,10 +57,10 @@ module SMPC (
 	bit  [ 7: 0] SEC;
 	bit  [ 7: 0] MIN;
 	bit  [ 7: 0] HOUR;
-	bit  [ 7: 0] DAYS;
-	bit  [ 3: 0] DAY;
-	bit  [ 3: 0] MONTH;
-	bit  [15: 0] YEAR;
+	bit  [ 7: 0] DAYS = 8'h01;
+	bit  [ 3: 0] DAY = 4'h2;
+	bit  [ 3: 0] MONTH = 4'h1;
+	bit  [15: 0] YEAR = 16'h2024;
 	
 //	bit  [ 7: 0] SMEM[4];
 
@@ -92,34 +92,26 @@ module SMPC (
 		PS_DPAD_0,PS_DPAD_1,PS_DPAD_2,PS_DPAD_3,PS_DPAD_4,PS_DPAD_5,PS_DPAD_6,PS_DPAD_7,
 		PS_MOUSE_0,PS_MOUSE_1,PS_MOUSE_2,PS_MOUSE_3,PS_MOUSE_4,PS_MOUSE_5,PS_MOUSE_6,PS_MOUSE_7,PS_MOUSE_8,PS_MOUSE_9,PS_MOUSE_10,
 		PS_ID5_0,PS_ID5_1,PS_ID5_2,PS_ID5_3,PS_ID5_4,PS_ANALOG_5,PS_ANALOG_6,PS_ANALOG_7,PS_ANALOG_8,PS_ANALOG_9,PS_ANALOG_10,
+		PS_NOTHING_STUNNER,
 		PS_NEXT,
 		PS_END
 	} PortState_t;
 	PortState_t PORT_ST;
 	
 
-	always @(posedge CLK or negedge RST_N) begin
+	always @(posedge CLK) begin
 		bit [21: 0] CLK_CNT;
 		bit         SEC_CLK,MIN_CLK,HOUR_CLK,DAYS_CLK,MONTH_CLK,YEAR_CLK;
 		
-		if (!RST_N) begin
+		if (CE) begin
+`ifdef DEBUG
 			SEC <= 8'h00;
 			MIN <= 8'h00;
 			HOUR <= 8'h00;
-			DAYS <= 8'h01;
+			DAYS <= 8'h02;
 			{DAY,MONTH} <= 8'h01;
 			YEAR <= 16'h2024;
-		end else if (COMM_ST == CS_EXEC && COMREG == 8'h16) begin
-`ifndef DEBUG
-			SEC <= IREG[6];
-			MIN <= IREG[5];
-			HOUR <= IREG[4];
-			DAYS <= IREG[3];
-			{DAY,MONTH} <= IREG[2];
-			YEAR <= {IREG[0],IREG[1]};
-`endif
-		end else if (CE) begin
-`ifndef DEBUG
+`else
 			SEC_CLK <= 0;
 			MIN_CLK <= 0;
 			HOUR_CLK <= 0;
@@ -192,6 +184,15 @@ module SMPC (
 			if (YEAR_CLK) begin
 				YEAR <= YEAR + 16'd1;
 			end
+			
+			if (COMM_ST == CS_EXEC && COMREG == 8'h16) begin
+				SEC <= IREG[6];
+				MIN <= IREG[5];
+				HOUR <= IREG[4];
+				DAYS <= IREG[3];
+				{DAY,MONTH} <= IREG[2];
+				YEAR <= {IREG[0],IREG[1]};
+			end
 `endif
 		end
 	end
@@ -212,7 +213,7 @@ module SMPC (
 		bit         IRQV_N_OLD;
 		bit [ 1: 0] FRAME_CNT;
 		bit [15: 0] WAIT_CNT;
-		bit [15: 0] INTBACK_WAIT_CNT;
+		bit [16: 0] TIME_CNT,INTBACK_TIME;
 		bit         SRES_EXEC;
 		bit         INTBACK_EXEC;
 		bit         INTBACK_PERI;
@@ -311,15 +312,17 @@ module SMPC (
 					SSHNMI_N <= 1;
 				end
 				
+				TIME_CNT <= TIME_CNT + 17'd1;
+				if (!IRQV_N && IRQV_N_OLD) begin
+					INTBACK_TIME <= TIME_CNT - 17'd4000;//1ms prior to vblank
+					TIME_CNT <= '0;
+				end
+				
 				if (!IRQV_N) begin
 					INTBACK_OPTIM_COND <= 0;
-					INTBACK_WAIT_CNT <= 16'd51700;
 				end
-				else if (!INTBACK_WAIT_CNT) begin
+				else if (TIME_CNT == INTBACK_TIME) begin
 					INTBACK_OPTIM_COND <= 1;
-				end
-				else begin
-					INTBACK_WAIT_CNT <= INTBACK_WAIT_CNT - 16'd1;
 				end
 				
 				SR[4:0] <= {~SRES_N,IREG[1][7:4]};
@@ -342,7 +345,7 @@ module SMPC (
 						else if (COMREG_SET && !SRES_EXEC) begin
 							COMREG_SET <= 0;
 							OREG_CNT <= '0;
-							WAIT_CNT <= 16'd90;
+							WAIT_CNT <= 16'd60;
 							NEXT_COMM_ST <= CS_COMMAND;
 							COMM_ST <= CS_WAIT;
 						end
@@ -374,43 +377,43 @@ module SMPC (
 					CS_COMMAND: begin
 						case (COMREG) 
 							8'h00: begin		//MSHON
-								WAIT_CNT <= 16'd120;
+								WAIT_CNT <= 16'd120 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h02: begin		//SSHON
-								WAIT_CNT <= 16'd120;
+								WAIT_CNT <= 16'd120 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h03: begin		//SSHOFF
-								WAIT_CNT <= 16'd120;
+								WAIT_CNT <= 16'd120 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h06: begin		//SNDON
-								WAIT_CNT <= 16'd120;
+								WAIT_CNT <= 16'd120 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h07: begin		//SNDOFF
-								WAIT_CNT <= 16'd120;
+								WAIT_CNT <= 16'd120 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h08: begin		//CDON
-								WAIT_CNT <= 16'd159;
+								WAIT_CNT <= 16'd160 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h09: begin		//CDOFF
-								WAIT_CNT <= 16'd159;
+								WAIT_CNT <= 16'd160 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
@@ -469,31 +472,31 @@ module SMPC (
 							end
 							
 							8'h16: begin		//SETTIME
-								WAIT_CNT <= 16'd279;
+								WAIT_CNT <= 16'd280 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h17: begin		//SETSMEM
-								WAIT_CNT <= 16'd159;
+								WAIT_CNT <= 16'd160 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h18: begin		//NMIREQ
-								WAIT_CNT <= 16'd127;
+								WAIT_CNT <= 16'd130 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h19: begin		//RESENAB
-								WAIT_CNT <= 16'd127;
+								WAIT_CNT <= 16'd130 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
 							
 							8'h1A: begin		//RESDISA
-								WAIT_CNT <= 16'd127;
+								WAIT_CNT <= 16'd130 - 16'd60;
 								NEXT_COMM_ST <= CS_EXEC;
 								COMM_ST <= CS_WAIT;
 							end
@@ -630,7 +633,7 @@ module SMPC (
 											CHECK_CONTINUE <= 1;
 										end
 										CONT_PREV <= 0;
-										MIRQ_N <= 0;
+										MIRQ_N <= 0; 
 										COMM_ST <= CS_END;
 									end
 									OREG_CNT <= OREG_CNT + 5'd1;
@@ -685,7 +688,7 @@ module SMPC (
 							OREG_RAM_WE <= 1;
 							SR[7:5] <= {1'b1,1'b1,1'b0};
 							//CHECK_CONTINUE <= 1;//TODO: multiple requests for large peripheral data
-							MIRQ_N <= 0;
+							MIRQ_N <= 0; 
 							COMM_ST <= CS_INTBACK_BREAK;
 						end
 					end
@@ -796,7 +799,7 @@ module SMPC (
 							PDR_O[PORT_NUM] <= '1; 
 							PORT_ST <= PS_ID1_0;
 						end else begin
-							OREG_DATA <= 8'hF0;
+							OREG_DATA <= 8'hA0;//8'hF0; //temporary hack
 							OREG_WRITE <= 1;
 							PORT_ST <= PS_NEXT;
 						end
@@ -840,11 +843,18 @@ module SMPC (
 							PORT_ST <= PS_MOUSE_0;
 						else if (MD_ID == 4'h5)
 							PORT_ST <= PS_ID5_0;
-						else if (MD_ID == 4'hF)
-							PORT_ST <= PS_NEXT;
+						else if (MD_ID == 4'hF || 4'hA)
+							PORT_ST <= PS_NOTHING_STUNNER;
 						else 
 							PORT_ST <= PS_END;
 					end
+					
+					//Nothing Detected or Stunner
+					PS_NOTHING_STUNNER: begin
+						OREG_DATA <= {MD_ID,4'b0000};
+						OREG_WRITE <= 1;
+						PORT_ST <= PS_NEXT;
+					end	
 					
 					//Standart PAD
 					PS_DPAD_0: begin

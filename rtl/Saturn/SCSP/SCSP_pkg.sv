@@ -4,15 +4,15 @@ package SCSP_PKG;
 	typedef struct packed		//RW,00
 	{
 		bit [ 2: 0] UNUSED;
-		bit         KX;
-		bit         KB;
-		bit [ 1: 0] SBCTL;
-		bit [ 1: 0] SSCTL;
-		bit [ 1: 0] LPCTL;
-		bit         PCM8B;
-		bit [ 3: 0] SAH;
+		bit         KX;		//WO
+		bit         KB;		//RW
+		bit [ 1: 0] SBCTL;	//RW
+		bit [ 1: 0] SSCTL;	//RW
+		bit [ 1: 0] LPCTL;	//RW
+		bit         PCM8B;	//RW
+		bit [ 3: 0] SAH;		//RW
 	} SCR0_t;
-	parameter bit [15:0] SCR0_MASK = 16'h1FFF;
+	parameter bit [15:0] SCR0_MASK = 16'h0FFF;
 	
 	typedef bit [15:0] SA_t;	//RW,02
 	parameter bit [15:0] SA_MASK = 16'hFFFF;
@@ -34,13 +34,13 @@ package SCSP_PKG;
 	
 	typedef struct packed		//RW,0A
 	{
-		bit         UNUSED;
+		bit         EGBP;
 		bit         LPSLNK;
 		bit [ 3: 0] KRS;
 		bit [ 4: 0] DL;
 		bit [ 4: 0] RR;
 	} SCR2_t;
-	parameter bit [15:0] SCR2_MASK = 16'h7FFF;
+	parameter bit [15:0] SCR2_MASK = 16'hFFFF;
 	
 	typedef struct packed		//RW,0C
 	{
@@ -49,7 +49,7 @@ package SCSP_PKG;
 		bit         SDIR;
 		bit [ 7: 0] TL;
 	} SCR3_t;
-	parameter bit [15:0] SCR3_MASK = 16'h03FF;
+	parameter bit [15:0] SCR3_MASK = 16'h0FFF;
 	
 	typedef struct packed		//RW,0E
 	{
@@ -61,11 +61,11 @@ package SCSP_PKG;
 	
 	typedef struct packed		//RW,10
 	{
-		bit         UNUSED;
+		bit         MSK;
 		bit [ 3: 0] OCT;
 		bit [10: 0] FNS;
 	} SCR5_t;
-	parameter bit [15:0] SCR5_MASK = 16'h7FFF;
+	parameter bit [15:0] SCR5_MASK = 16'hFFFF;
 	
 	typedef struct packed		//RW,12
 	{
@@ -84,7 +84,7 @@ package SCSP_PKG;
 		bit [ 3: 0] ISEL;
 		bit [ 2: 0] IMXL;
 	} SCR7_t;
-	parameter bit [15:0] SCR7_MASK = 16'h007F;
+	parameter bit [15:0] SCR7_MASK = 16'h00FF;
 	
 	typedef struct packed		//RW,16
 	{
@@ -148,7 +148,8 @@ package SCSP_PKG;
 		bit [14: 0] DMEAL;
 		bit         UNUSED;
 	} CR5_t;
-	parameter bit [15:0] CR5_MASK = 16'hFFFE;
+	parameter bit [15:0] CR5_WMASK = 16'hFFFE;
+	parameter bit [15:0] CR5_RMASK = 16'h0000;
 	
 	typedef struct packed		//RW,100414
 	{
@@ -156,7 +157,8 @@ package SCSP_PKG;
 		bit [10: 0] DRGA;
 		bit         UNUSED;
 	} CR6_t;
-	parameter bit [15:0] CR6_MASK = 16'hFFFE;
+	parameter bit [15:0] CR6_WMASK = 16'hFFFE;
+	parameter bit [15:0] CR6_RMASK = 16'h0000;
 	
 	typedef struct packed		//RW,100416
 	{
@@ -167,7 +169,8 @@ package SCSP_PKG;
 		bit [10: 0] DTLG;
 		bit         UNUSED2;
 	} CR7_t;
-	parameter bit [15:0] CR7_MASK = 16'h7FFE;
+	parameter bit [15:0] CR7_WMASK = 16'h7FFE;
+	parameter bit [15:0] CR7_RMASK = 16'h7000;
 	
 	typedef struct packed		//RW,100418
 	{
@@ -307,14 +310,15 @@ package SCSP_PKG;
 		bit         NEGB;
 		bit         ZERO;
 		bit         BSEL;
-		bit         NOFL;
+		bit         UNUSED3;
 		bit [ 5: 0] COEF;
-		bit [ 1: 0] UNUSED3;
+		bit         NOFL;
+		bit         UNUSED4;
 		bit [ 4: 0] MASA;
 		bit         ADREB;
 		bit         NXADR;
 	} MPRO_t;
-	parameter bit [63:0] MPRO_MASK = 64'h7FFFEFFFFFFFFE7F;
+	parameter bit [63:0] MPRO_MASK = 64'hFFFFFFFFFFFFFFFF;
 	
 	typedef bit [23:0] TEMP_t;		//RW,100C00-100DFF
 	parameter bit [31:0] TEMP_MASK = 32'h00FFFFFF;
@@ -337,23 +341,17 @@ package SCSP_PKG;
 	parameter EGState_t EST_DECAY2  = 2'b10;
 	parameter EGState_t EST_RELEASE = 2'b11;
 	
-//	typedef struct packed
-//	{
-//		bit [14: 0] PHASE;
-//	} OP1State_t;
-	
 	typedef struct packed
 	{
 		bit [ 4: 0] SLOT;	//
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
-		bit [ 7: 0] PHASE_INT;//Phase integer
-		bit [17: 0] PHASE_FRAC;//Phase fractional
-		bit [ 5: 0] BASE_RATE;
-		bit [ 7: 0] ALFO;	//ALFO wave
+		bit [22: 0] PHASE;
+		bit         MSK;	//
+		bit [ 7: 0] ND;
 	} OP2_t;
-	parameter OP2_t OP2_RESET = '{5'h00,1'b0,1'b0,1'b0,8'h00,18'h00000,6'h00,8'h00};
+	parameter OP2_t OP2_RESET = '{5'h00,1'b0,1'b0,1'b0,23'h000000,1'b0,8'h00};
 	
 	typedef struct packed
 	{
@@ -361,17 +359,15 @@ package SCSP_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
-		bit [ 5: 0] BASE_RATE;
-		bit         LOOP;//Loop processing 
-		bit         LOOP_END;//Loop processing end
-		bit         PCM8B;//
-		bit [ 1: 0] SBCTL;
-		bit [ 1: 0] SSCTL;
-		bit [ 1: 0] EST;//Envelope state
-		bit [ 9: 0] EVOL;//Envelope volume
-		bit [ 7: 0] ALFO;	//ALFO wave
+		bit         ALLOW;
+		bit         LOOP;	//Loop processing 
+		bit [13: 0] PHASE_FRAC;//Phase fractional
+		bit [ 7: 0] ND;
+		bit [15: 0] SO;	//Sample offset
+		bit [21: 0] MOD;	//Modulation
+		bit [16: 0] MASK;	//Wave mask
 	} OP3_t;
-	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,6'h00,1'b0,1'b0,1'b0,2'h0,2'h0,2'h0,10'h000,8'h00};
+	parameter OP3_t OP3_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,1'b0,14'h0000,8'h00,16'h0000,22'h000000,17'h00000};
 	
 	typedef struct packed
 	{
@@ -379,15 +375,13 @@ package SCSP_PKG;
 		bit         RST;	//
 		bit         KON;	//
 		bit         KOFF;	//
-		bit [ 5: 0] BASE_RATE;
 		bit         LOOP;//Loop processing 
-		bit         LOOP_END;//Loop processing end
-		bit [ 1: 0] EST;//Envelope state
-		bit [ 9: 0] EVOL;//Envelope volume
-		bit [ 7: 0] ALFO;	//ALFO wave
-		bit [15: 0] WD;//Wave form data
+		bit [ 7: 0] ND;
+		bit [ 5: 0] MODF;	//Modulation fractional
+		bit [ 1: 0] SSCTL;
+		bit [ 1: 0] SBCTL;
 	} OP4_t;
-	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0,6'h00,1'b0,1'b0,2'h0,10'h000,8'h00,16'h0000};
+	parameter OP4_t OP4_RESET = '{5'h00,1'b0,1'b0,1'b0,1'b0,8'h00,6'h00,2'b00,2'b00};
 	
 	typedef struct packed
 	{
@@ -396,11 +390,10 @@ package SCSP_PKG;
 		bit         KON;	//
 		bit         KOFF;	//
 		bit [15: 0] WD;	//Wave form data
-		bit [ 1: 0] EST;	//Envelope state
 		bit [ 9: 0] EVOL;	//Envelope volume
 		bit [ 7: 0] ALFO; //ALFO wave
 	} OP5_t;
-	parameter OP5_t OP5_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000,2'h0,10'h000,8'h00};
+	parameter OP5_t OP5_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000,10'h000,8'h00};
 	
 	typedef struct packed
 	{
@@ -409,10 +402,9 @@ package SCSP_PKG;
 		bit         KON;	//
 		bit         KOFF;	//
 		bit [15: 0] WD;	//Wave form data
-		bit [15: 0] SD;	//Slot out data
 		bit [ 9: 0] LEVEL;//Level
 	} OP6_t;
-	parameter OP6_t OP6_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000,16'h0000,10'h000};
+	parameter OP6_t OP6_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000,10'h000};
 	
 	typedef struct packed
 	{
@@ -426,262 +418,135 @@ package SCSP_PKG;
 	parameter OP7_t OP7_RESET = '{5'h00,1'b0,1'b0,1'b0,16'h0000,1'b0};
 	
 	
+	function bit [15:0] Interpolate(input bit [15:0] WAVE0, input bit [15:0] WAVE1, bit [5:0] PHASE);
+		bit [ 6:0] PHASE_NEG;
+		bit [21:0] TEMP0,TEMP1;
+		bit [21:0] SUM;
+		
+		PHASE_NEG = 7'h40 - PHASE;
+		TEMP0 = $signed(WAVE0) * PHASE_NEG;
+		TEMP1 = $signed(WAVE1) * PHASE;
+		SUM = $signed(TEMP0) + $signed(TEMP1);
 	
-	function bit [15:0] SoundSel(input bit [15:0] WAVE, input bit [15:0] NOISE, bit [1:0] SBCTL, bit [1:0] SSCTL);
+		return SUM[21:6];
+	endfunction
+	
+	function bit [15:0] SoundSel(input bit [15:0] WAVE0, input bit [15:0] WAVE1, input bit [15:0] NOISE, bit [1:0] SSCTL, bit [1:0] SBCTL, bit [5:0] PHASE);
 		bit [15:0] SD;
-		bit [15:0] temp;
 		
 		case (SSCTL)
-			2'b00: temp = WAVE;
-			2'b01: temp = NOISE;
-			default: temp = 16'h0000;
-		endcase
-		SD = {temp[15] ^ SBCTL[1], temp[14:0] ^ {15{SBCTL[0]}}}; 
+			2'b00: SD = Interpolate(WAVE0 ^ {SBCTL[1],{15{SBCTL[0]}}}, WAVE1 ^ {SBCTL[1],{15{SBCTL[0]}}}, PHASE);
+			2'b01: SD = NOISE ^ {SBCTL[1],{15{SBCTL[0]}}};
+			default: SD = {SBCTL[1],{15{SBCTL[0]}}};
+		endcase 
 	
 		return SD;
 	endfunction
 
-	function bit signed [15:0] MDCalc(bit signed [15:0] X, bit signed [15:0] Y, bit [3:0] MDL);
-		bit signed [15:0] MD;
+	function bit signed [21:0] MDCalc(bit signed [15:0] X, bit signed [15:0] Y, bit [3:0] MDL);
 		bit signed [16:0] TEMP;
+		bit signed [22:0] MD;
 		
 		TEMP = $signed({X[15],X[15:0]}) + $signed({Y[15],Y[15:0]}); 
-		MD = $signed($signed(TEMP[16:1])>>>(~MDL));
+		MD = $signed($signed({TEMP[16:1],1'b0,6'b000000})>>>(4'h0-MDL));
 		
-		return MDL > 4'd4 ? MD : '0;
+		return MDL > 4'd4 ? {{5{MD[16]}},MD[16:1],1'b0} : '0;
 	endfunction
 	
 	function bit [9:0] LFOFreqDiv(bit [4:0] LFOF);
-		bit [2:0] TEMP;
-		bit [9:0] TEMP2;
+		bit [3:0] TEMP;
+		bit [10:0] TEMP2;
 		
-		TEMP = ~{1'b0,LFOF[1:0]} + 3'd1;
+		TEMP = {1'b0,~{1'b0,LFOF[1:0]}} + 4'd1;
 		TEMP2 = {TEMP,7'b0000000}>>LFOF[4:2];
-		return TEMP2 - 10'd4;
+		return TEMP2 - 10'd4 - 10'd1;
 	endfunction
 	
 	function bit [7:0] ALFOCalc(bit [7:0] DATA, bit [7:0] NOISE, bit [1:0] ALFOWS, bit [2:0] ALFOS);
 		bit [7:0] WAVE;
-		bit [7:0] TEMP;
+		bit [7:0] RET;
 		
 		case (ALFOWS)
 			2'b00: WAVE = DATA;
 			2'b01: WAVE = {8{DATA[7]}};
-			2'b10: WAVE = {DATA[6:0],1'b0} ^ {8{DATA[7]}};
+			2'b10: WAVE = {DATA[6:0] ^ {7{DATA[7]}},1'b0};
 			2'b11: WAVE = NOISE;
 		endcase
-		TEMP = ALFOS ? (WAVE>>(~ALFOS)) : '0;
 		
-		return TEMP;
+		RET = ALFOS ? ((WAVE&8'hFE)>>(~ALFOS)) : '0;
+		
+		return RET;
 	endfunction
 	
 	function bit [7:0] PLFOCalc(bit [7:0] DATA, bit [7:0] NOISE, bit [1:0] PLFOWS, bit [2:0] PLFOS);
 		bit [7:0] WAVE;
-		bit [7:0] TEMP;
+		bit [7:0] RET;
 		
 		case (PLFOWS)
 			2'b00: WAVE = DATA;
-			2'b01: WAVE = {8{DATA[7]}};
-			2'b10: WAVE = {DATA[6:0],1'b0} ^ {8{DATA[7]}};
-			2'b11: WAVE = NOISE;
+			2'b01: WAVE = { DATA[7],{7{~DATA[7]}} };
+			2'b10: WAVE = { {1'b0,DATA[5:0]^{6{DATA[6]}}} ^ {7{DATA[7]}},1'b0 };
+			2'b11: WAVE = NOISE ^ 8'h80;
 		endcase
 		
-		TEMP = PLFOS ? $signed($signed(WAVE ^ 8'h80)>>>(~PLFOS)) : '0;
+		RET = PLFOS ? $signed($signed(WAVE&8'hFE)>>>(~PLFOS)) : '0;
 		
-		return TEMP;
+		return RET;
 	endfunction
 	
-	function bit [25:0] PhaseCalc(SCR5_t SCR5, bit signed [7:0] PLFO_WAVE);
-		bit [25:0] P;
+	function bit [22:0] PhaseCalc(SCR5_t SCR5, bit signed [7:0] PLFO_WAVE);
+		bit [26:0] P;
 		bit [3:0] S;
 		bit [10:0] F;
-		bit [10:0] FM;
+		bit [14:0] TEMP;
+		bit [11:0] FM;
 		
 		S = SCR5.OCT^4'h8;
 		F = 11'h400 + SCR5.FNS;
-		FM = $signed(($signed(PLFO_WAVE) * F[10:5]) >>> 6);
-		P = {15'b000000000000000,F+FM}<<S;
+		TEMP = $signed(PLFO_WAVE) * F[10:4];
+		FM = {{3{TEMP[14]}},TEMP[14:6]};
+		P = {15'b000000000000000,{1'b0,F}+FM}<<S;
 		
-		return P;
+		return P[26:4];
 	endfunction
 	
+	function bit [16:0] WaveMask(bit [15:0] LEA);
+		bit [16:0] RET;
+		
+		RET = 17'h1FFFF;
+		if (LEA[10]) RET = 17'h003FF;
+		if (LEA[ 9]) RET = 17'h001FF;
+		if (LEA[ 8]) RET = 17'h000FF;
+		if (LEA[ 7]) RET = 17'h0007F;
+		
+		return RET;
+	endfunction
 	
-	typedef struct packed
-	{
-		bit [12: 0] CNT;	//
-		bit         LAST;	//
-	} EnvTable_t;
-	parameter EnvTable_t ENV_TBL [64][7] = '{
-	'{{13'h1FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//00
-	'{{13'h1FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b1}},//01
-	'{{13'h0FFF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//02
-	'{{13'h0FFF,1'b0},{13'h0FFF,1'b0},{13'h0FFF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//03
-	
-	'{{13'h0FFF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//04
-	'{{13'h0FFF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b1}},//05
-	'{{13'h07FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//06
-	'{{13'h07FF,1'b0},{13'h07FF,1'b0},{13'h07FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//07
-	
-	'{{13'h07FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//08
-	'{{13'h07FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b1}},//09
-	'{{13'h03FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//0A
-	'{{13'h03FF,1'b0},{13'h03FF,1'b0},{13'h03FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//0B
-	
-	'{{13'h03FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//0C
-	'{{13'h03FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b1}},//0D
-	'{{13'h01FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//0E
-	'{{13'h01FF,1'b0},{13'h01FF,1'b0},{13'h01FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//0F
-	
-	'{{13'h01FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//10
-	'{{13'h01FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b1}},//11
-	'{{13'h00FF,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//12
-	'{{13'h00FF,1'b0},{13'h00FF,1'b0},{13'h00FF,1'b0},{13'h007F,1'b0},{13'h007F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//13
-	
-	'{{13'h00FF,1'b0},{13'h007F,1'b0},{13'h007F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//14
-	'{{13'h00FF,1'b0},{13'h007F,1'b0},{13'h007F,1'b0},{13'h007F,1'b0},{13'h007F,1'b0},{13'h007F,1'b0},{13'h007F,1'b1}},//15
-	'{{13'h007F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//16
-	'{{13'h007F,1'b0},{13'h007F,1'b0},{13'h007F,1'b0},{13'h003F,1'b0},{13'h003F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//17
-	
-	'{{13'h007F,1'b0},{13'h003F,1'b0},{13'h003F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//18
-	'{{13'h007F,1'b0},{13'h003F,1'b0},{13'h003F,1'b0},{13'h003F,1'b0},{13'h003F,1'b0},{13'h003F,1'b0},{13'h003F,1'b1}},//19
-	'{{13'h003F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//1A
-	'{{13'h003F,1'b0},{13'h003F,1'b0},{13'h003F,1'b0},{13'h001F,1'b0},{13'h001F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//1B
-	
-	'{{13'h003F,1'b0},{13'h001F,1'b0},{13'h001F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//1C
-	'{{13'h003F,1'b0},{13'h001F,1'b0},{13'h001F,1'b0},{13'h001F,1'b0},{13'h001F,1'b0},{13'h001F,1'b0},{13'h001F,1'b1}},//1D
-	'{{13'h001F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//1E
-	'{{13'h001F,1'b0},{13'h001F,1'b0},{13'h001F,1'b0},{13'h000F,1'b0},{13'h000F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//1F
-	
-	'{{13'h001F,1'b0},{13'h000F,1'b0},{13'h000F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//20
-	'{{13'h001F,1'b0},{13'h000F,1'b0},{13'h000F,1'b0},{13'h000F,1'b0},{13'h000F,1'b0},{13'h000F,1'b0},{13'h000F,1'b1}},//21
-	'{{13'h000F,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//22
-	'{{13'h000F,1'b0},{13'h000F,1'b0},{13'h000F,1'b0},{13'h0007,1'b0},{13'h0007,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//23
-	
-	'{{13'h000F,1'b0},{13'h0007,1'b0},{13'h0007,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//24
-	'{{13'h000F,1'b0},{13'h0007,1'b0},{13'h0007,1'b0},{13'h0007,1'b0},{13'h0007,1'b0},{13'h0007,1'b0},{13'h0007,1'b1}},//25
-	'{{13'h0007,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//26
-	'{{13'h0007,1'b0},{13'h0007,1'b0},{13'h0007,1'b0},{13'h0003,1'b0},{13'h0003,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//27
-	
-	'{{13'h0007,1'b0},{13'h0003,1'b0},{13'h0003,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//28
-	'{{13'h0007,1'b0},{13'h0003,1'b0},{13'h0003,1'b0},{13'h0003,1'b0},{13'h0003,1'b0},{13'h0003,1'b0},{13'h0003,1'b1}},//29
-	'{{13'h0003,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//2A
-	'{{13'h0003,1'b0},{13'h0003,1'b0},{13'h0003,1'b0},{13'h0001,1'b0},{13'h0001,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//2B
-	
-	'{{13'h0003,1'b0},{13'h0001,1'b0},{13'h0001,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//2C
-	'{{13'h0003,1'b0},{13'h0001,1'b0},{13'h0001,1'b0},{13'h0001,1'b0},{13'h0001,1'b0},{13'h0001,1'b0},{13'h0001,1'b1}},//2D
-	'{{13'h0001,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//2E
-	'{{13'h0001,1'b0},{13'h0001,1'b0},{13'h0001,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//2F
-	
-	'{{13'h0001,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//30
-	'{{13'h0001,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1}},//31
-	'{{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//32
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//33
-	
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//34
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1}},//35
-	'{{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//36
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//37
-	
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//38
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1}},//39
-	'{{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//3A
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}},//3B
-	
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//3C
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1}},//3D
-	'{{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0}},//3E
-	'{{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b0},{13'h0000,1'b1},{13'h0000,1'b0},{13'h0000,1'b0}} //3F
-	};
-	
-	function bit [5:0] BaseRateCalc(SCR5_t SCR5);
+	function bit [5:0] EffRateCalc(bit [4:0] RATE, bit [3:0] KRS, bit [3:0] OCT);
+		bit [4:0] RES;
 		bit [5:0] TEMP;
+		bit [3:0] KEY_EG_SCALE;
+		bit [5:0] TEMP2;
+		bit [4:0] RATE_SCALE,RATE_SCALE2;
 		
-		TEMP = {5'b00000,SCR5.FNS[9]} + {{2{SCR5.OCT[3]}},SCR5.OCT};
-			
-		return TEMP;
-	endfunction
-	
-	parameter bit [ 3: 0] ARATE_TBL [16][4] = '{
-	'{4'h4,4'h4,4'h4,4'h4},//30
-	'{4'h3,4'h4,4'h4,4'h4},//31
-	'{4'h3,4'h4,4'h3,4'h4},//32
-	'{4'h3,4'h3,4'h3,4'h4},//33
-	
-	'{4'h3,4'h3,4'h3,4'h3},//34
-	'{4'h2,4'h3,4'h3,4'h3},//35
-	'{4'h2,4'h3,4'h2,4'h3},//36
-	'{4'h2,4'h2,4'h2,4'h3},//37
-	
-	'{4'h2,4'h2,4'h2,4'h2},//38
-	'{4'h1,4'h2,4'h2,4'h2},//39
-	'{4'h1,4'h2,4'h1,4'h2},//3A
-	'{4'h1,4'h1,4'h1,4'h2},//3B
-	
-	'{4'h1,4'h1,4'h1,4'h1},//3C
-	'{4'h1,4'h1,4'h1,4'h1},//3D
-	'{4'h1,4'h1,4'h1,4'h1},//3E
-	'{4'h1,4'h1,4'h1,4'h1} //3F
-	};
-	
-	parameter bit [ 3: 0] DRATE_TBL [16][4] = '{
-	'{4'h1,4'h1,4'h1,4'h1},//30
-	'{4'h2,4'h1,4'h1,4'h1},//31
-	'{4'h2,4'h1,4'h2,4'h1},//32
-	'{4'h2,4'h2,4'h2,4'h1},//33
-	
-	'{4'h2,4'h2,4'h2,4'h2},//34
-	'{4'h4,4'h2,4'h2,4'h2},//35
-	'{4'h2,4'h2,4'h4,4'h2},//36
-	'{4'h4,4'h4,4'h4,4'h2},//37
-	
-	'{4'h4,4'h4,4'h4,4'h4},//38
-	'{4'h8,4'h4,4'h4,4'h4},//39
-	'{4'h8,4'h4,4'h8,4'h4},//3A
-	'{4'h8,4'h8,4'h8,4'h4},//3B
-	
-	'{4'h8,4'h8,4'h8,4'h8},//3C
-	'{4'h8,4'h8,4'h8,4'h8},//3D
-	'{4'h8,4'h8,4'h8,4'h8},//3E
-	'{4'h8,4'h8,4'h8,4'h8} //3F
-	};
-	
-	function bit [9:0] AttackEnvCalc(bit [5:0] RATE, bit [9:0] EVOL);
-		bit [3:0] R;
-		
-		if (RATE[5:4] != 2'h3)
-			R = ARATE_TBL[0][0];
-		else
-			R = ARATE_TBL[RATE[3:0]][0];
-		return (EVOL>>R) + 10'd1;
-	endfunction
-	
-	function bit [9:0] DecayEnvCalc(bit [5:0] RATE);
-		bit [3:0] R;
-		
-		if (RATE[5:4] != 2'h3)
-			R = DRATE_TBL[0][0];
-		else
-			R = DRATE_TBL[RATE[3:0]][0];
-		return {6'b000000,R};
-	endfunction
-	
-	function bit [5:0] EffRateCalc(bit [5:0] BASE, bit [4:0] RATE, bit [3:0] KRS);
-		bit [5:0] RES;
-		bit [7:0] TEMP;
-		
+		TEMP = {2'b00,KRS} + {OCT[3],OCT[3],OCT};
 		if (KRS == 4'hF) 
-			TEMP = {2'b00,RATE,1'b0};
+			KEY_EG_SCALE = '0;
 		else
-			TEMP = {{2{BASE[5]}},BASE} + {2'b00,RATE,1'b0} + {3'b000,KRS,1'b0};
+			KEY_EG_SCALE = TEMP[5] ? 4'h0 : TEMP[4] ? 4'hF : TEMP[3:0];
 		
-		if (TEMP[7])
-			RES = 6'h00;
-		else if (TEMP[6])
-			RES = 6'h3F;
-		else
-			RES = TEMP[5:0];
+		TEMP2 = {1'b0,RATE} + {2'b00,KEY_EG_SCALE};
+		RES = TEMP2[5] ? 5'h1F : TEMP2[4:0];
 			
-		return RES;
+		return {TEMP2[5],RES};
+	endfunction
+	
+	function bit [3:0] EffRateBit(bit [4:0] ERATE);
+		bit [4:0] TEMP;
+
+		TEMP = 5'h18 - (ERATE > 5'h18 ? 5'h18 : ERATE[4:0]);
+			
+		return TEMP[4:1];
 	endfunction
 	
 	function bit [9:0] LevelAddALFO(bit [9:0] LEVEL, bit [7:0] ALFO);
@@ -726,6 +591,10 @@ package SCSP_PKG;
 		
 		TEMP = $signed($signed(WAVE)>>>PAN[3:1]);
 		return  PAN[4] ? $signed(TEMP) - (PAN[0] ? $signed($signed(TEMP)>>>2) : '0) : WAVE;
+	endfunction
+	
+	function bit signed [19:0] DSPLevelCalc(bit signed [19:0] WAVE, bit [2:0] SDL);
+		return SDL ? $signed($signed(WAVE)>>>(~SDL)) : 20'sh0000;
 	endfunction
 	
 	function bit signed [15:0] MVolCalc(bit signed [17:0] WAVE, bit [3:0] MVOL, bit DAC18B);

@@ -10,11 +10,6 @@ module HPS2PAD (
 	input      [ 6: 0] PDR2O,
 	input      [ 6: 0] DDR2,
 	
-//	input              INPUT_ACT,
-//	input      [ 4: 0] INPUT_POS,
-//	output reg [ 7: 0] INPUT_DATA,
-//	output reg         INPUT_WE,
-	
 	input      [15: 0] JOY1,
 	input      [15: 0] JOY2,
 
@@ -27,9 +22,65 @@ module HPS2PAD (
    input      [ 7: 0] JOY2_X2,
    input      [ 7: 0] JOY2_Y2,
 
-	input      [ 2: 0] JOY1_TYPE,
-	input      [ 2: 0] JOY2_TYPE
+   input      [ 2: 0] JOY1_TYPE,
+   input      [ 2: 0] JOY2_TYPE,
+
+   input      [24: 0] MOUSE,
+   input      [15: 0] MOUSE_EXT
 );
+  //joypad mouse
+	parameter PAD_MOUSE_DEAD_ZONE = 7;
+
+	wire [3:0] mouse_flags;
+	wire [3:0] mouse_buttons;
+	wire [7:0] mouse_x;
+	wire [7:0] mouse_y;
+
+	// reset ps2 mouse delta accumulators after completed read by saturn (PAD_MOUSE STATE == 10)
+	wire reset_acc = (JOY1_TYPE == PAD_MOUSE && STATE1 == 5'd10) || (JOY2_TYPE == PAD_MOUSE && STATE2 == 5'd10);
+
+	ps2_mouse ps2mouse
+	(
+		.clk(CLK),
+		.ce(SMPC_CE),
+		.reset(~RST_N),
+		.reset_acc(reset_acc),
+
+		.ps2_mouse(MOUSE),
+		.ps2_mouse_ext(MOUSE_EXT),
+
+		.flags(mouse_flags),
+		.buttons(mouse_buttons),
+		.x(mouse_x),
+		.y(mouse_y)
+	);
+
+
+	// scale joypad analog to 37.5%. Default is way too sensitive
+	wire signed [7:0] p1_mjx =  (($signed(JOY1_X1) >>> $signed(2)) + ($signed(JOY1_X1) >>> $signed(3)));
+	wire signed [7:0] p1_mjy = -(($signed(JOY1_Y1) >>> $signed(2)) + ($signed(JOY1_Y1) >>> $signed(3)));
+	// add a little deadzone around neutral on joypad analog
+	wire [7:0] p1_mjx_dz = ($signed(p1_mjx) > $signed(PAD_MOUSE_DEAD_ZONE) || $signed(p1_mjx) < $signed(-PAD_MOUSE_DEAD_ZONE)) ? p1_mjx : '0;
+	wire [7:0] p1_mjy_dz = ($signed(p1_mjy) > $signed(PAD_MOUSE_DEAD_ZONE) || $signed(p1_mjy) < $signed(-PAD_MOUSE_DEAD_ZONE)) ? p1_mjy : '0;
+
+	// scale joypad analog to 37.5%. Default is way too sensitive
+	wire signed [7:0] p2_mjx =  (($signed(JOY2_X1) >>> $signed(2)) + ($signed(JOY2_X1) >>> $signed(3)));
+	wire signed [7:0] p2_mjy = -(($signed(JOY2_Y1) >>> $signed(2)) + ($signed(JOY2_Y1) >>> $signed(3)));
+	// add a little deadzone around neutral on joypad analog
+	wire [7:0] p2_mjx_dz = ($signed(p2_mjx) > $signed(PAD_MOUSE_DEAD_ZONE) || $signed(p2_mjx) < $signed(-PAD_MOUSE_DEAD_ZONE)) ? p2_mjx : '0;
+	wire [7:0] p2_mjy_dz = ($signed(p2_mjy) > $signed(PAD_MOUSE_DEAD_ZONE) || $signed(p2_mjy) < $signed(-PAD_MOUSE_DEAD_ZONE)) ? p2_mjy : '0;
+
+	// merge ps2 mouse with p1 joypad mouse
+	wire [3:0] p1_m_flags   = mouse_flags | {2'b0,p1_mjy_dz[7],p1_mjx_dz[7]};
+	wire [3:0] p1_m_buttons = mouse_buttons | ~JOY1[11: 8];
+	wire [7:0] p1_m_x       = mouse_x | p1_mjx_dz;
+	wire [7:0] p1_m_y       = mouse_y | p1_mjy_dz;
+
+	// merge ps2 mouse with p2 joypad mouse
+	wire [3:0] p2_m_flags   = mouse_flags | {2'b0,p2_mjy_dz[7],p2_mjx_dz[7]};
+	wire [3:0] p2_m_buttons = mouse_buttons | ~JOY2[11: 8];
+	wire [7:0] p2_m_x       = mouse_x | p2_mjx_dz;
+	wire [7:0] p2_m_y       = mouse_y | p2_mjy_dz;
 
 	parameter PAD_DIGITAL     = 0;
 	parameter PAD_OFF         = 1;
@@ -41,8 +92,8 @@ module HPS2PAD (
 	
 	bit [ 3: 0] OUT1,OUT2;
 	bit         TL1,TL2;
+	bit [ 4: 0]  STATE1,STATE2;
 	always @(posedge CLK or negedge RST_N) begin
-		bit [ 4: 0]  STATE1,STATE2;
 		
 		if (!RST_N) begin
 			STATE1 <= '0;
@@ -75,12 +126,12 @@ module HPS2PAD (
 						5'd1: if (PDR1O[6:5] == 2'b01) begin OUT1 <= 4'hB;                          TL1 <= 1; STATE1 <= 5'd2; end
 						5'd2: if (PDR1O[6:5] == 2'b00) begin OUT1 <= 4'hF;                          TL1 <= 0; STATE1 <= 5'd3; end
 						5'd3: if (PDR1O[6:5] == 2'b01) begin OUT1 <= 4'hF;                          TL1 <= 1; STATE1 <= 5'd4; end
-						5'd4: if (PDR1O[6:5] == 2'b00) begin OUT1 <= {2'b00,JOY1_X1[7],JOY1_Y1[7]}; TL1 <= 0; STATE1 <= 5'd5; end
-						5'd5: if (PDR1O[6:5] == 2'b01) begin OUT1 <= JOY1[11: 8];                   TL1 <= 1; STATE1 <= 5'd6; end
-						5'd6: if (PDR1O[6:5] == 2'b00) begin OUT1 <= JOY1_X1[7:4]^4'h8;             TL1 <= 0; STATE1 <= 5'd7; end
-						5'd7: if (PDR1O[6:5] == 2'b01) begin OUT1 <= JOY1_X1[3:0];                  TL1 <= 1; STATE1 <= 5'd8; end
-						5'd8: if (PDR1O[6:5] == 2'b00) begin OUT1 <= JOY1_Y1[7:4]^4'h8;             TL1 <= 0; STATE1 <= 5'd9; end
-						5'd9: if (PDR1O[6:5] == 2'b01) begin OUT1 <= JOY1_Y1[3:0];                  TL1 <= 1; STATE1 <= 5'd10; end
+						5'd4: if (PDR1O[6:5] == 2'b00) begin OUT1 <= p1_m_flags;                    TL1 <= 0; STATE1 <= 5'd5; end
+						5'd5: if (PDR1O[6:5] == 2'b01) begin OUT1 <= p1_m_buttons;                  TL1 <= 1; STATE1 <= 5'd6; end
+						5'd6: if (PDR1O[6:5] == 2'b00) begin OUT1 <= p1_m_x[7:4];                   TL1 <= 0; STATE1 <= 5'd7; end
+						5'd7: if (PDR1O[6:5] == 2'b01) begin OUT1 <= p1_m_x[3:0];                   TL1 <= 1; STATE1 <= 5'd8; end
+						5'd8: if (PDR1O[6:5] == 2'b00) begin OUT1 <= p1_m_y[7:4];                   TL1 <= 0; STATE1 <= 5'd9; end
+						5'd9: if (PDR1O[6:5] == 2'b01) begin OUT1 <= p1_m_y[3:0];                   TL1 <= 1; STATE1 <= 5'd10; end
 					endcase
 					if (PDR1O[6:5] == 2'b11) begin OUT1 <= 4'h0; TL1 <= 1; STATE1 <= 5'd0; end
 				end
@@ -136,12 +187,12 @@ module HPS2PAD (
 						5'd1: if (PDR2O[6:5] == 2'b01) begin OUT2 <= 4'hB;                          TL2 <= 1; STATE2 <= 5'd2; end
 						5'd2: if (PDR2O[6:5] == 2'b00) begin OUT2 <= 4'hF;                          TL2 <= 0; STATE2 <= 5'd3; end
 						5'd3: if (PDR2O[6:5] == 2'b01) begin OUT2 <= 4'hF;                          TL2 <= 1; STATE2 <= 5'd4; end
-						5'd4: if (PDR2O[6:5] == 2'b00) begin OUT2 <= {2'b00,JOY2_X1[7],JOY2_Y1[7]}; TL2 <= 0; STATE2 <= 5'd5; end
-						5'd5: if (PDR2O[6:5] == 2'b01) begin OUT2 <= JOY2[11: 8];                   TL2 <= 1; STATE2 <= 5'd6; end
-						5'd6: if (PDR2O[6:5] == 2'b00) begin OUT2 <= JOY2_X1[7:4]^4'h8;             TL2 <= 0; STATE2 <= 5'd7; end
-						5'd7: if (PDR2O[6:5] == 2'b01) begin OUT2 <= JOY2_X1[3:0];                  TL2 <= 1; STATE2 <= 5'd8; end
-						5'd8: if (PDR2O[6:5] == 2'b00) begin OUT2 <= JOY2_Y1[7:4]^4'h8;             TL2 <= 0; STATE2 <= 5'd9; end
-						5'd9: if (PDR2O[6:5] == 2'b01) begin OUT2 <= JOY2_Y1[3:0];                  TL2 <= 1; STATE2 <= 5'd10; end
+						5'd4: if (PDR2O[6:5] == 2'b00) begin OUT2 <= p2_m_flags;                    TL2 <= 0; STATE2 <= 5'd5; end
+						5'd5: if (PDR2O[6:5] == 2'b01) begin OUT2 <= p2_m_buttons;                  TL2 <= 1; STATE2 <= 5'd6; end
+						5'd6: if (PDR2O[6:5] == 2'b00) begin OUT2 <= p2_m_x[7:4];                   TL2 <= 0; STATE2 <= 5'd7; end
+						5'd7: if (PDR2O[6:5] == 2'b01) begin OUT2 <= p2_m_x[3:0];                   TL2 <= 1; STATE2 <= 5'd8; end
+						5'd8: if (PDR2O[6:5] == 2'b00) begin OUT2 <= p2_m_y[7:4];                   TL2 <= 0; STATE2 <= 5'd9; end
+						5'd9: if (PDR2O[6:5] == 2'b01) begin OUT2 <= p2_m_y[3:0];                   TL2 <= 1; STATE2 <= 5'd10; end
 					endcase
 					if (PDR2O[6:5] == 2'b11) begin OUT2 <= 4'h0; TL2 <= 1; STATE2 <= 5'd0; end
 				end
@@ -235,271 +286,5 @@ module HPS2PAD (
 			default: ;
 		endcase
 	end
-	
-//	typedef enum {
-//		PADSTATE_STATUS,
-//		PADSTATE_ID,
-//
-//		PADSTATE_DIGITAL_MSB,
-//		PADSTATE_DIGITAL_LSB,
-//
-//		PADSTATE_ANALOG_BUTTONSMSB,
-//		PADSTATE_ANALOG_BUTTONSLSB,
-//		PADSTATE_ANALOG_X1,
-//		PADSTATE_ANALOG_Y1,
-//		PADSTATE_ANALOG_Z1,
-//		PADSTATE_ANALOG_DUMMY,
-//		PADSTATE_ANALOG_X2,
-//		PADSTATE_ANALOG_Y2,
-//		PADSTATE_ANALOG_Z2,
-//
-//		PADSTATE_IDLE
-//	} PadState_t;
-//	PadState_t PADSTATE;
-//	
-//	always @(posedge CLK or negedge RST_N) begin
-//		bit [ 1: 0]  CURRPAD_ID;
-//		bit [ 2: 0]  CURRPAD_TYPE;
-//		bit [15: 0]  CURRPAD_BUTTONS;
-//		bit [ 7: 0]  CURRPAD_ANALOGX1;
-//		bit [ 7: 0]  CURRPAD_ANALOGY1;
-//		bit [ 7: 0]  CURRPAD_ANALOGX2;
-//		bit [ 7: 0]  CURRPAD_ANALOGY2;
-//		
-//		if (!RST_N) begin
-//			PADSTATE <= PADSTATE_STATUS;
-//			CURRPAD_ID <= 0;
-//			INPUT_WE <= 0;
-//		end else if (SMPC_CE) begin
-//			INPUT_WE <= 0;
-//			if (INPUT_ACT) begin
-//				case (PADSTATE)
-//					// STATUS and ID are common to all pads
-//					// STATUS: F1 for directly connected, F0 for not
-//					PADSTATE_STATUS: begin
-//						case (CURRPAD_ID)
-//							0: begin
-//								CURRPAD_TYPE <= JOY1_TYPE;
-//								CURRPAD_BUTTONS <= JOY1;
-//								// MiSTer gives signed with 0,0 at center.
-//								// Saturn uses unsigned with 0,0 at top-left.
-//								CURRPAD_ANALOGX1 <= {~JOY1_X1[7], JOY1_X1[6:0]};
-//								CURRPAD_ANALOGY1 <= {~JOY1_Y1[7], JOY1_Y1[6:0]};
-//								CURRPAD_ANALOGX2 <= {~JOY1_X2[7], JOY1_X2[6:0]};
-//								CURRPAD_ANALOGY2 <= {~JOY1_Y2[7], JOY1_Y2[6:0]};
-//
-//								case (JOY1_TYPE)
-//									PAD_OFF: begin
-//										INPUT_DATA <= 8'hF0;
-//										INPUT_WE <= 1;
-//
-//										// done with this peripheral
-//										PADSTATE <= PADSTATE_STATUS;
-//										CURRPAD_ID <= CURRPAD_ID + 1'd1;
-//									end
-//									default: begin
-//										INPUT_DATA <= 8'hF1;
-//										INPUT_WE <= 1;
-//										PADSTATE <= PADSTATE_ID;
-//									end
-//								endcase
-//							end
-//							1: begin
-//								CURRPAD_TYPE <= JOY2_TYPE;
-//								CURRPAD_BUTTONS <= JOY2;
-//								// MiSTer gives signed with 0,0 at center.
-//								// Saturn uses unsigned with 0,0 at top-left.
-//								CURRPAD_ANALOGX1 <= {~JOY2_X1[7], JOY2_X1[6:0]};
-//								CURRPAD_ANALOGY1 <= {~JOY2_Y1[7], JOY2_Y1[6:0]};
-//								CURRPAD_ANALOGX2 <= {~JOY2_X2[7], JOY2_X2[6:0]};
-//								CURRPAD_ANALOGY2 <= {~JOY2_Y2[7], JOY2_Y2[6:0]};
-//
-//								case (JOY2_TYPE)
-//									PAD_OFF: begin
-//										INPUT_DATA <= 8'hF0;
-//										INPUT_WE <= 1;
-//
-//										// done with this peripheral
-//										PADSTATE <= PADSTATE_STATUS;
-//										CURRPAD_ID <= CURRPAD_ID + 1'd1;
-//									end
-//									default: begin
-//										INPUT_DATA <= 8'hF1;
-//										INPUT_WE <= 1;
-//										PADSTATE <= PADSTATE_ID;
-//									end
-//								endcase
-//							end
-//							2: begin
-//								INPUT_DATA <= 8'hF0;
-//								INPUT_WE <= 1;
-//								PADSTATE <= PADSTATE_IDLE;
-//							end
-//						endcase
-//					end
-//
-//					// ID: unique for each pad
-//					PADSTATE_ID: begin
-//						case (CURRPAD_TYPE)
-//							// TODO: lightgun currently just digital
-//							PAD_DIGITAL, PAD_LIGHTGUN: begin
-//								INPUT_DATA <= 8'h02;
-//								INPUT_WE <= 1;
-//								PADSTATE <= PADSTATE_DIGITAL_MSB;
-//							end
-//							// Wheel is a 1-axis analog device
-//							PAD_WHEEL: begin
-//								INPUT_DATA <= 8'h13;
-//								INPUT_WE <= 1;
-//								PADSTATE <= PADSTATE_ANALOG_BUTTONSMSB;
-//							end
-//							// Mission Stick is a 3-axis analog device
-//							PAD_MISSION: begin
-//								INPUT_DATA <= 8'h15;
-//								INPUT_WE <= 1;
-//								PADSTATE <= PADSTATE_ANALOG_BUTTONSMSB;
-//							end
-//							// 3D Pad is a 4-axis analog device
-//							PAD_3D: begin
-//								INPUT_DATA <= 8'h16;
-//								INPUT_WE <= 1;
-//								PADSTATE <= PADSTATE_ANALOG_BUTTONSMSB;
-//							end
-//							// Dual Mission is a 6-axis device,
-//							// with a dummy/expansion byte
-//							PAD_DUALMISSION: begin
-//								INPUT_DATA <= 8'h19;
-//								INPUT_WE <= 1;
-//								PADSTATE <= PADSTATE_ANALOG_BUTTONSMSB;
-//							end
-//						endcase
-//					end
-//
-//
-//					// Saturn 6-button digital pad
-//					PADSTATE_DIGITAL_MSB: begin
-//						INPUT_DATA <= CURRPAD_BUTTONS[15:8];
-//						INPUT_WE <= 1;
-//						PADSTATE <= PADSTATE_DIGITAL_LSB;
-//					end
-//					PADSTATE_DIGITAL_LSB: begin
-//						INPUT_DATA <= CURRPAD_BUTTONS[7:0];
-//						INPUT_WE <= 1;
-//
-//						// done with this peripheral
-//						PADSTATE <= PADSTATE_STATUS;
-//						CURRPAD_ID <= CURRPAD_ID + 1'd1;
-//					end
-//
-//					// Button encoding is the same for analog pads
-//					PADSTATE_ANALOG_BUTTONSMSB: begin
-//						INPUT_DATA <= CURRPAD_BUTTONS[15:8];
-//						INPUT_WE <= 1;
-//						PADSTATE <= PADSTATE_ANALOG_BUTTONSLSB;
-//					end
-//					PADSTATE_ANALOG_BUTTONSLSB: begin
-//						INPUT_DATA <= CURRPAD_BUTTONS[7:0];
-//						INPUT_WE <= 1;
-//						PADSTATE <= PADSTATE_ANALOG_X1;
-//					end
-//
-//					PADSTATE_ANALOG_X1: begin
-//						INPUT_DATA <= CURRPAD_ANALOGX1;
-//						INPUT_WE <= 1;
-//
-//						case (CURRPAD_TYPE)
-//							PAD_WHEEL: begin
-//								// done with this peripheral
-//								PADSTATE <= PADSTATE_STATUS;
-//								CURRPAD_ID <= CURRPAD_ID + 1'd1;
-//							end
-//							default: begin
-//								PADSTATE <= PADSTATE_ANALOG_Y1;
-//							end
-//						endcase
-//					end
-//
-//					PADSTATE_ANALOG_Y1: begin
-//						INPUT_DATA <= CURRPAD_ANALOGY1;
-//						INPUT_WE <= 1;
-//
-//						case (CURRPAD_TYPE)
-//							// On 3D Pad, the RIGHT trigger is first
-//							PAD_3D: begin
-//								PADSTATE <= PADSTATE_ANALOG_Z2;
-//							end
-//							// Mission and Dual Mission go to Z1
-//							default: begin
-//								PADSTATE <= PADSTATE_ANALOG_Z1;
-//							end
-//						endcase
-//					end
-//
-//					PADSTATE_ANALOG_Z1: begin
-//						INPUT_DATA <= 0; // TODO: left shoulder trigger
-//						INPUT_WE <= 1;
-//
-//						case (CURRPAD_TYPE)
-//							PAD_DUALMISSION: begin
-//								PADSTATE <= PADSTATE_ANALOG_DUMMY;
-//							end
-//							default: begin
-//								// done with this peripheral
-//								PADSTATE <= PADSTATE_STATUS;
-//								CURRPAD_ID <= CURRPAD_ID + 1'd1;
-//							end
-//						endcase
-//					end
-//
-//					// DUMMY, X2, Y2 all Dual Mission only
-//					PADSTATE_ANALOG_DUMMY: begin
-//						INPUT_DATA <= 0;
-//						INPUT_WE <= 1;
-//						PADSTATE <= PADSTATE_ANALOG_X2;
-//					end
-//					PADSTATE_ANALOG_X2: begin
-//						INPUT_DATA <= CURRPAD_ANALOGX2;
-//						INPUT_WE <= 1;
-//						PADSTATE <= PADSTATE_ANALOG_Y2;
-//					end
-//					PADSTATE_ANALOG_Y2: begin
-//						INPUT_DATA <= CURRPAD_ANALOGY2;
-//						INPUT_WE <= 1;
-//						PADSTATE <= PADSTATE_ANALOG_Z2;
-//					end
-//
-//					// Z2 reached by Dual Mission and 3D Pad
-//					PADSTATE_ANALOG_Z2: begin
-//						INPUT_DATA <= 0; // TODO: right shoulder trigger
-//						INPUT_WE <= 1;
-//
-//						case (CURRPAD_TYPE)
-//							PAD_3D: begin
-//								// triggers reversed on 3D Pad
-//								PADSTATE <= PADSTATE_ANALOG_Z1;
-//							end
-//							default: begin
-//								// done with this peripheral
-//								PADSTATE <= PADSTATE_STATUS;
-//								CURRPAD_ID <= CURRPAD_ID + 1'd1;
-//							end
-//						endcase
-//					end
-//
-//
-//					// all connected peripherals finished
-//					PADSTATE_IDLE: begin
-//						INPUT_DATA <= 8'h00;
-//						INPUT_WE <= 1;
-//					end
-//
-//				endcase
-//			end
-//			else begin
-//				PADSTATE <= PADSTATE_STATUS;
-//				CURRPAD_ID <= 0;
-//			end
-//		end
-//	end
 	
 endmodule

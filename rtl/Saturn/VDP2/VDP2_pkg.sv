@@ -1166,6 +1166,7 @@ package VDP2_PKG;
 		bit         LZMX;
 		bit         VCSC;
 		bit [ 1: 0] LSS;
+		bit         MZE;
 		bit [18: 1] LWTA;
 		bit         TPON;
 		bit         ON;
@@ -1190,6 +1191,7 @@ package VDP2_PKG;
 		bit [ 2: 0] BMP;
 		bit         BMPR;
 		bit         BMCC;
+		bit         MZE;
 		bit         TPON;
 		bit         ON;
 		bit [ 2: 0] CAOS;
@@ -1349,6 +1351,11 @@ package VDP2_PKG;
 		S[2].LSS = '0;
 		S[3].LSS = '0;
 		
+		S[0].MZE = REGS.MZCTL.N0MZE;
+		S[1].MZE = REGS.MZCTL.N1MZE;
+		S[2].MZE = REGS.MZCTL.N2MZE;
+		S[3].MZE = REGS.MZCTL.N3MZE;
+		
 		S[0].LWTA = {REGS.LWTA0U.WxLWTA,REGS.LWTA0L.WxLWTA};
 		S[1].LWTA = {REGS.LWTA1U.WxLWTA,REGS.LWTA1L.WxLWTA};
 		S[2].LWTA = '0;
@@ -1429,10 +1436,13 @@ package VDP2_PKG;
 		S[1].BMP = REGS.BMPNA.N0BMP;
 		
 		S[0].BMPR = REGS.BMPNB.R0BMPR;
-		S[1].BMPR = REGS.BMPNA.N1BMPR;
+		S[1].BMPR = REGS.BMPNA.N0BMPR;
 		
 		S[0].BMCC = REGS.BMPNB.R0BMCC;
-		S[1].BMCC = REGS.BMPNA.N1BMCC;
+		S[1].BMCC = REGS.BMPNA.N0BMCC;
+		
+		S[0].MZE = REGS.MZCTL.R0MZE;
+		S[1].MZE = REGS.MZCTL.N0MZE;
 		
 		S[0].ON = REGS.BGON.R0ON;
 		S[1].ON = REGS.BGON.R1ON;
@@ -1447,7 +1457,7 @@ package VDP2_PKG;
 		S[1].PRIN = REGS.PRINA.N0PRIN;
 		
 		S[0].SPRM = REGS.SFPRMD.R0SPRM;
-		S[1].SPRM = REGS.SFPRMD.N1SPRM;
+		S[1].SPRM = REGS.SFPRMD.N0SPRM;
 		
 		S[0].COEN = REGS.CLOFEN.R0COEN;
 		S[1].COEN = REGS.CLOFEN.N0COEN;
@@ -1462,7 +1472,7 @@ package VDP2_PKG;
 		S[1].CCRT = REGS.CCRNA.N0CCRT;
 		
 		S[0].SCCM = REGS.SFCCMD.R0SCCM;
-		S[1].SCCM = REGS.SFCCMD.N1SCCM;
+		S[1].SCCM = REGS.SFCCMD.N0SCCM;
 		
 		return S;
 	endfunction
@@ -1572,10 +1582,7 @@ package VDP2_PKG;
 	{
 		bit         PN; 
 		bit         CH; 
-		bit         VS; 
-//		bit         LS; 
-		bit         CPUA; 
-		bit         CPUD; 
+		bit         VS;  
 		bit [ 1: 0] Nx;
 	} NVRAMAccess_t;
 	
@@ -1641,10 +1648,6 @@ package VDP2_PKG;
 		bit [ 1: 0] NxA1VS;
 		bit [ 1: 0] NxB0VS;
 		bit [ 1: 0] NxB1VS;
-		bit         NxA0CPU;
-		bit         NxA1CPU;
-		bit         NxB0CPU;
-		bit         NxB1CPU;
 		NxPNEN_t    NxPN_FETCH;
 		bit [ 1: 0] RxA0PN;
 		bit [ 1: 0] RxA1PN;
@@ -1660,6 +1663,8 @@ package VDP2_PKG;
 		bit [ 1: 0] RxB1CT;
 		bit [ 1: 0] RxCRCT;
 		bit [ 1: 0] RxCTTP;
+		bit         AxNA;
+		bit         BxNA;
 		bit         LS;
 		bit   [2:0] LS_POS;
 		bit         LW;
@@ -2293,10 +2298,10 @@ package VDP2_PKG;
 	{
 		bit         PR;	//Priority flag
 		bit         CC;	//Color calculation flag
-		bit         TPON;	//Transparent code enabled
 		bit [ 6: 0] PALN;	//Palette number
+		bit         TP;	//Transparent 
 	} CellParam_t;
-	parameter CellParam_t CDP_NULL = {1'b0,1'b0,1'b0,7'h00};
+	parameter CellParam_t CDP_NULL = {1'b0,1'b0,7'h00,1'b0};
 	
 	typedef struct packed
 	{
@@ -2310,7 +2315,7 @@ package VDP2_PKG;
 	
 	typedef DotData_t DotsBuffer_t [16];
 	
-	function DotData_t MakeDotData(input bit [31:0] DCC, input CellParam_t CDP, input bit [2:0] CHCN);
+	function DotData_t MakeDotData(input bit [31:0] DCC, input CellParam_t CDP, input bit [2:0] CHCN, input bit TPON);
 		bit [23: 0] DC;
 		bit [ 2: 0] NTP;
 		bit         P;
@@ -2326,11 +2331,11 @@ package VDP2_PKG;
 
 		NTP = {|DCC[10:8],|DCC[7:4],|DCC[3:0]};
 		case (CHCN)
-			3'b000:  begin TP = ~(|NTP[0:0] | CDP.TPON); P = 1; end	//Palette 4bits/dot, 16 colors
-			3'b001:  begin TP = ~(|NTP[1:0] | CDP.TPON); P = 1; end	//Palette 8bits/dot, 256 colors
-			3'b010:  begin TP = ~(|NTP[2:0] | CDP.TPON); P = 1; end	//Palette 16bits/dot, 2048 colors
-			3'b011:  begin TP = ~(DCC[15]   | CDP.TPON); P = 0; end	//RGB 16bits/dot, 32768 colors
-			default: begin TP = ~(DCC[31]   | CDP.TPON); P = 0; end	//RGB 32bits/dot, 16M colors
+			3'b000:  begin TP = CDP.TP | ~(|NTP[0:0] | TPON); P = 1; end	//Palette 4bits/dot, 16 colors
+			3'b001:  begin TP = CDP.TP | ~(|NTP[1:0] | TPON); P = 1; end	//Palette 8bits/dot, 256 colors
+			3'b010:  begin TP = CDP.TP | ~(|NTP[2:0] | TPON); P = 1; end	//Palette 16bits/dot, 2048 colors
+			3'b011:  begin TP = CDP.TP | ~(DCC[15]   | TPON); P = 0; end	//RGB 16bits/dot, 32768 colors
+			default: begin TP = CDP.TP | ~(DCC[31]   | TPON); P = 0; end	//RGB 32bits/dot, 16M colors
 		endcase
 		
 		return {CDP.PR, CDP.CC, P, TP, DC};
