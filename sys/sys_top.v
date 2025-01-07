@@ -18,6 +18,8 @@
 //  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 //
 //============================================================================
+`default_nettype none
+
 
 module sys_top
 (
@@ -46,15 +48,15 @@ module sys_top
 	//////////// SDR ///////////
 	output [12:0] SDRAM_A,
 	inout  [15:0] SDRAM_DQ,
-	output        SDRAM_DQML,
-	output        SDRAM_DQMH,
+//	output        SDRAM_DQML,
+//	output        SDRAM_DQMH,
 	output        SDRAM_nWE,
 	output        SDRAM_nCAS,
 	output        SDRAM_nRAS,
 	output        SDRAM_nCS,
 	output  [1:0] SDRAM_BA,
 	output        SDRAM_CLK,
-	output        SDRAM_CKE,
+//	output        SDRAM_CKE,
 
 `ifdef MISTER_DUAL_SDRAM
 	////////// SDR #2 //////////
@@ -74,7 +76,7 @@ module sys_top
 //	output  [5:0] VGA_B,
 //	inout         VGA_HS,  // VGA_HS is secondary SD card detect when VGA_EN = 1 (inactive)
 //	output		  VGA_VS,
-	input         VGA_EN,  // active low
+//	input         VGA_EN,  // active low
 
 	/////////// AUDIO //////////
 //	output		  AUDIO_L,
@@ -131,7 +133,7 @@ module sys_top
 //wire [5:0] VGA_B;
 //wire VGA_HS;
 //wire VGA_VS;
-//wire VGA_EN = 1'b1;
+wire VGA_EN = 1'b1;
 
 //wire [3:0] SDIO_DAT;
 //wire SDIO_CMD = 1'b1;
@@ -176,9 +178,9 @@ wire led_u = ~led_user;
 wire led_locked;
 
 `ifndef MISTER_DUAL_SDRAM
-	assign LED_POWER = (SW[3] | led_p) ? 1'bZ : 1'b0;
-	assign LED_HDD   = (SW[3] | led_d) ? 1'bZ : 1'b0;
-	assign LED_USER  = (SW[3] | led_u) ? 1'bZ : 1'b0;
+//	assign LED_POWER = (SW[3] | led_p) ? 1'bZ : 1'b0;
+//	assign LED_HDD   = (SW[3] | led_d) ? 1'bZ : 1'b0;
+//	assign LED_USER  = (SW[3] | led_u) ? 1'bZ : 1'b0;
 `endif
 
 //LEDs on main board
@@ -201,8 +203,8 @@ mcp23009 mcp23009
 	.led({led_p, led_d, led_u}),
 //	.sd_cd(mcp_sdcd),
 
-	.scl(IO_SCL),
-	.sda(IO_SDA)
+//	.scl(IO_SCL),
+//	.sda(IO_SDA)
 );
 
 
@@ -1418,11 +1420,11 @@ csync csync_vga(clk_vid, vga_hs_osd, vga_vs_osd, vga_cs_osd);
 
 	wire cs1 = (vga_fb | vga_scaler) ? vgas_cs : vga_cs;
 
-	assign VGA_VS = (VGA_EN | SW[3]) ? 1'bZ      : (((vga_fb | vga_scaler) ? (~vgas_vs ^ VS[12])                         : VGA_DISABLE ? 1'd1 : ~vga_vs) | csync_en);
-	assign VGA_HS = (VGA_EN | SW[3]) ? 1'bZ      :  ((vga_fb | vga_scaler) ? ((csync_en ? ~vgas_cs : ~vgas_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));
-	assign VGA_R  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[23:18]                               : VGA_DISABLE ? 6'd0 : vga_o[23:18];
-	assign VGA_G  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[15:10]                               : VGA_DISABLE ? 6'd0 : vga_o[15:10];
-	assign VGA_B  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[7:2]                                 : VGA_DISABLE ? 6'd0 : vga_o[7:2]  ;
+//	assign VGA_VS = (VGA_EN | SW[3]) ? 1'bZ      : (((vga_fb | vga_scaler) ? (~vgas_vs ^ VS[12])                         : VGA_DISABLE ? 1'd1 : ~vga_vs) | csync_en);
+//	assign VGA_HS = (VGA_EN | SW[3]) ? 1'bZ      :  ((vga_fb | vga_scaler) ? ((csync_en ? ~vgas_cs : ~vgas_hs) ^ HS[12]) : VGA_DISABLE ? 1'd1 : (csync_en ? ~vga_cs : ~vga_hs));
+//	assign VGA_R  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[23:18]                               : VGA_DISABLE ? 6'd0 : vga_o[23:18];
+//	assign VGA_G  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[15:10]                               : VGA_DISABLE ? 6'd0 : vga_o[15:10];
+//	assign VGA_B  = (VGA_EN | SW[3]) ? 6'bZZZZZZ :   (vga_fb | vga_scaler) ? vgas_o[7:2]                                 : VGA_DISABLE ? 6'd0 : vga_o[7:2]  ;
 `endif
 
 reg video_sync = 0;
@@ -1452,17 +1454,17 @@ end
 
 /////////////////////////  Audio output  ////////////////////////////////
 
-assign SDCD_SPDIF =(SW[3] & ~spdif) ? 1'b0 : 1'bZ;
+//assign SDCD_SPDIF =(SW[3] & ~spdif) ? 1'b0 : 1'bZ;
 
 `ifndef MISTER_DUAL_SDRAM
 	wire analog_l, analog_r;
 
-	assign AUDIO_SPDIF = SW[3] ? 1'bZ : SW[0] ? HDMI_LRCLK : spdif;
-	assign AUDIO_R     = SW[3] ? 1'bZ : SW[0] ? HDMI_I2S   : analog_r;
-	assign AUDIO_L     = SW[3] ? 1'bZ : SW[0] ? HDMI_SCLK  : analog_l;
+//	assign AUDIO_SPDIF = SW[3] ? 1'bZ : SW[0] ? HDMI_LRCLK : spdif;
+//	assign AUDIO_R     = SW[3] ? 1'bZ : SW[0] ? HDMI_I2S   : analog_r;
+//	assign AUDIO_L     = SW[3] ? 1'bZ : SW[0] ? HDMI_SCLK  : analog_l;
 `endif
 
-assign HDMI_MCLK = clk_audio;
+//assign HDMI_MCLK = clk_audio;
 wire clk_audio;
 
 pll_audio pll_audio
@@ -1700,7 +1702,7 @@ emu emu
 	.AUDIO_S(audio_s),
 	.AUDIO_MIX(audio_mix),
 
-	.ADC_BUS({ADC_SCK,ADC_SDO,ADC_SDI,ADC_CONVST}),
+//	.ADC_BUS({ADC_SCK,ADC_SDO,ADC_SDI,ADC_CONVST}),
 
 	.DDRAM_CLK(ram_clk),
 	.DDRAM_ADDR(ram_address),
@@ -1715,15 +1717,15 @@ emu emu
 
 	.SDRAM_DQ(SDRAM_DQ),
 	.SDRAM_A(SDRAM_A),
-	.SDRAM_DQML(SDRAM_DQML),
-	.SDRAM_DQMH(SDRAM_DQMH),
+//	.SDRAM_DQML(SDRAM_DQML),
+//	.SDRAM_DQMH(SDRAM_DQMH),
 	.SDRAM_BA(SDRAM_BA),
 	.SDRAM_nCS(SDRAM_nCS),
 	.SDRAM_nWE(SDRAM_nWE),
 	.SDRAM_nRAS(SDRAM_nRAS),
 	.SDRAM_nCAS(SDRAM_nCAS),
 	.SDRAM_CLK(SDRAM_CLK),
-	.SDRAM_CKE(SDRAM_CKE),
+//	.SDRAM_CKE(SDRAM_CKE),
 
 `ifdef MISTER_DUAL_SDRAM
 	.SDRAM2_DQ(SDRAM2_DQ),
@@ -1742,12 +1744,12 @@ emu emu
 
 	.SD_SCK(SD_CLK),
 	.SD_MOSI(SD_MOSI),
-	.SD_MISO(SD_MISO),
+//	.SD_MISO(SD_MISO),
 	.SD_CS(SD_CS),
 `ifdef MISTER_DUAL_SDRAM
 	.SD_CD(mcp_sdcd),
 `else
-	.SD_CD(mcp_sdcd & (SW[0] ? VGA_HS : (SW[3] | SDCD_SPDIF))),
+//	.SD_CD(mcp_sdcd & (SW[0] ? VGA_HS : (SW[3] | SDCD_SPDIF))),
 `endif
 
 	.UART_CTS(uart_rts),
