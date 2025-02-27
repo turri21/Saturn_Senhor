@@ -175,50 +175,6 @@ module emu
 	assign BUTTONS   = {1'b0,osd_btn};
 	assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 
-	always_comb begin
-		if (status[10]) begin
-			VIDEO_ARX = 8'd0;
-			VIDEO_ARY = 8'd0;
-		end else begin
-			casez(res)
-				4'b00?0: begin // 320 x 224
-					VIDEO_ARX = status[11] ? 8'd10: 8'd64;
-					VIDEO_ARY = status[11] ? 8'd7 : 8'd49;
-				end
-	
-				4'b00?1: begin // 352 x 224
-					VIDEO_ARX = status[11] ? 8'd22: 8'd64;
-					VIDEO_ARY = status[11] ? 8'd14: 8'd49;
-				end
-	
-				4'b01?0: begin // 320 x 240
-					VIDEO_ARX = status[11] ? 8'd4 : 8'd128;
-					VIDEO_ARY = status[11] ? 8'd3 : 8'd105;
-				end
-	
-				4'b01?1: begin // 352 x 240
-					VIDEO_ARX = status[11] ? 8'd22: 8'd128;
-					VIDEO_ARY = status[11] ? 8'd15: 8'd105;
-				end
-	
-				4'b10?0: begin // 320 x 256
-					VIDEO_ARX = status[11] ? 8'd5 : 8'd64;
-					VIDEO_ARY = status[11] ? 8'd4 : 8'd49;
-				end
-	
-				4'b10?1: begin // 352 x 256
-					VIDEO_ARX = status[11] ? 8'd11: 8'd128;
-					VIDEO_ARY = status[11] ? 8'd8 : 8'd105;
-				end
-	
-				default: begin // not supported
-					VIDEO_ARX = status[11] ? 8'd10: 8'd64;
-					VIDEO_ARY = status[11] ? 8'd7 : 8'd49;
-				end
-			endcase
-		end
-	end
-	
 	assign AUDIO_S = 1;
 	assign AUDIO_MIX = 0;
 	assign HDMI_FREEZE = 0;
@@ -228,148 +184,213 @@ module emu
 	assign LED_POWER = 0;
 	assign LED_USER  = bios_download;
 	assign VGA_SCALER= 0;
+	assign HDMI_BLACKOUT = 1;
+	
+	wire [1:0] ar = status[63:62];
+	wire [7:0] arx,ary;
+
+	
+	always_comb begin
+		if (status[10]) begin
+			arx = 8'd0;
+			ary = 8'd0;
+		end else begin
+			casez(res)
+				4'b00?0: begin // 320 x 224
+					arx = status[11] ? 8'd10: 8'd64;
+					ary = status[11] ? 8'd7 : 8'd49;
+				end
+	
+				4'b00?1: begin // 352 x 224
+					arx = status[11] ? 8'd22: 8'd64;
+					ary = status[11] ? 8'd14: 8'd49;
+				end
+	
+				4'b01?0: begin // 320 x 240
+					arx = status[11] ? 8'd4 : 8'd128;
+					ary = status[11] ? 8'd3 : 8'd105;
+				end
+	
+				4'b01?1: begin // 352 x 240
+					arx = status[11] ? 8'd22: 8'd128;
+					ary = status[11] ? 8'd15: 8'd105;
+				end
+	
+				4'b10?0: begin // 320 x 256
+					arx = status[11] ? 8'd5 : 8'd64;
+					ary = status[11] ? 8'd4 : 8'd49;
+				end
+	
+				4'b10?1: begin // 352 x 256
+					arx = status[11] ? 8'd11: 8'd128;
+					ary = status[11] ? 8'd8 : 8'd105;
+				end
+	
+				default: begin // not supported
+					arx = status[11] ? 8'd10: 8'd64;
+					ary = status[11] ? 8'd7 : 8'd49;
+				end
+			endcase
+		end
+	end
+	
+	wire       vcrop_en = status[61];
+	wire [3:0] vcopt    = status[54:51];
+	reg        en216p;
+	reg  [4:0] voff;
+	always @(posedge CLK_VIDEO) begin
+`ifndef DEBUG
+		en216p <= ((HDMI_WIDTH == 1920) && (HDMI_HEIGHT == 1080) && !forced_scandoubler && !scale);
+`else
+		en216p <= 0;
+`endif		
+		voff <= (vcopt < 6) ? {vcopt,1'b0} : ({vcopt,1'b0} - 5'd24);
+	end
+
+	wire vga_de;
+	video_freak video_freak
+	(
+		.*,
+		.VGA_DE_IN(vga_de),
+		.ARX((!ar) ? arx : (ar - 1'd1)),
+		.ARY((!ar) ? ary : 12'd0),
+		.CROP_SIZE((en216p & vcrop_en) ? 10'd216 : 10'd0),
+		.CROP_OFF(voff),
+		.SCALE(status[56:55])
+	);
 
 
 	///////////////////////////////////////////////////
-	
+	//
 	// Status Bit Map:
 	//             Upper                             Lower              
-	// 0         1         2         3          4         5         6   
-	// 01234567890123456789012345678901 23456789012345678901234567890123
+	// 0         1         2         3          4         5         6   	   7         8         9
+	// 01234567890123456789012345678901 23456789012345678901234567890123 45678901234567890123456789012345
 	// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-	// XXXX XXXXXXXXXXXXXXXXXXXXXXXX     XXXXXXXXXXXXX                
+	// XXXX XXXXXXXXXXXXXXXXXXXXXXXXX     XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX X
 	
 	`include "build_id.v"
 	localparam CONF_STR = {
+`ifndef STV_BUILD
 		"Saturn;;",
 		"S0,CUECHD,Insert Disc;",
 		"FS2,BIN,Load bios;",
 		"FS3,BIN,Load cartridge;",
 		"-;",
-		"OLN,Cartridge,None,ROM 2M,DRAM 1M,DRAM 4M,BACKUP;",
-		"o13,Region,Japan,Taiwan,USA,Brazil,Korea,Asia,Europe,Auto;",
+		"O[23:21],Cartridge,None,ROM 2M,DRAM 1M,DRAM 4M,BACKUP;",
+		"O[35:33],Region,Japan,Taiwan,USA,Brazil,Korea,Asia,Europe,Auto;",
+`else
+		"ST-V;;",
+`endif
 		"-;",
-		"D0RO,Load Backup RAM;",
-		"D0RP,Save Backup RAM;",
-		"D0OQ,Autosave,Off,On;", 
+		"D0R[24],Load Backup RAM;",
+		"D0R[25],Save Backup RAM;",
+		"D0O[26],Autosave,Off,On;", 
 		"-;",
 		
 		"P1,Audio & Video;",
 		"P1-;",
-		"P1OA,Aspect Ratio,4:3,Stretched;",
-		"P1OB,320x224 Aspect,Original,Corrected;",
-		"P1OT,Deinterlacing, Weave, Bob;",
-		"P1O[1],Black Transitions,On,Off;",
-//		"P1O13,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
-//		"P1-;",
-//		"P1OC,Border,No,Yes;",
-//		"P1ODE,Composite Blend,Off,On,Adaptive;",
+		"P1o[63:62],Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+		"P1O[11],320x224 Aspect,Original,Corrected;",
+		"P1O[29],Deinterlacing, Weave, Bob;",
+//		"P1O[3:1],Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;",
+		"P1-;",
+//		"P1O[12],Border,No,Yes;",
+		"P1o[50],Composite Blend,Off,On;",
+		"P1-;",
+		"P1o[64],Horizontal Crop,Off,On;",
+		"P1o[61],Vertical Crop,Disabled,216p(5x);",
+		"P1o[54:51],Crop Offset,0,2,4,8,10,12,-12,-10,-8,-6,-4,-2;",
+		"P1o[56:55],Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	
 		"P2,Input;",
 		"P2-;",
-		"P2OFH,Pad 1,Digital,Off,Wheel,Mission Stick,3D Pad,Dual Mission,Mouse;",
-		"P2OIK,Pad 2,Digital,Off,Wheel,Mission Stick,3D Pad,Dual Mission,Mouse;",
-		"P2OR,SNAC,OFF,ON;",
-		"-;",
+`ifndef STV_BUILD
+		"P2O[27],Pad 1 SNAC,OFF,ON;",
+		"P2-;",
+		"D5P2O[17:15],Pad 1,Digital,Virt LGun,Wheel,Mission Stick,3D Pad,Dual Mission,Mouse,Off;",
+		"P2-;",
+		"D6P2O[46],LGun P1 XY Ctrl,Joy 1,Mouse;",
+		"D6P2O[47],LGun P1 Buttons,Joy 1,Mouse;",
+		"D6P2O[49:48],LGun P1 Crosshair,Small,Medium,Big,None;",
+		"P2-;",
+		"P2-;",
+		"P2O[20:18],Pad 2,Digital,Virt LGun,Wheel,Mission Stick,3D Pad,Dual Mission,Mouse,Off;",
+		"P2-;",
+		"D7P2O[57],LGun P2 XY Ctrl,Joy 2,Mouse;",
+		"D7P2O[58],LGun P2 Buttons,Joy 2,Mouse;",
+		"D7P2O[60:59],LGun P2 Crosshair,Small,Medium,Big,None;",
+`else
+		
+`endif
 		
 `ifndef MISTER_DUAL_SDRAM
 		"P3,Hardware;",
 		"P3-;",
 		"P3OS,Timing,Original,Fast;",
 `endif
-		
-`ifndef DEBUG
+
 		"P4,Debug;",
 		"P4-;",
-		"P4o4,VDP2 NBG0,Enable,Disable;",
-		"P4o5,VDP2 NBG1,Enable,Disable;",
-		"P4o6,VDP2 NBG2,Enable,Disable;",
-		"P4o7,VDP2 NBG3,Enable,Disable;",
-		"P4o8,VDP2 RBG0,Enable,Disable;",
-		"P4o9,VDP2 Sprite,Enable,Disable;",
-		"P4oA,VDP2 Shadow,Enable,Disable;",
+		"P4o[36],VDP2 NBG0,Enable,Disable;",
+		"P4o[37],VDP2 NBG1,Enable,Disable;",
+		"P4o[38],VDP2 NBG2,Enable,Disable;",
+		"P4o[39],VDP2 NBG3,Enable,Disable;",
+		"P4o[40],VDP2 RBG0,Enable,Disable;",
+		"P4o[41],VDP2 Sprite,Enable,Disable;",
+		"P4o[42],VDP2 Shadow,Enable,Disable;",
 		"P4-;",
-		"P4oB,SCSP Direct sound,Enable,Disable;",
-		"P4oC,SCSP DSP sound,Enable,Disable;",
-		"P4oD,CD audio,Enable,Disable;",
-`else
-		"P4,Debug;",
-		"P4o4,SCSP slot 0,Enable,Disable;",
-		"P4o5,SCSP slot 1,Enable,Disable;",
-		"P4o6,SCSP slot 2,Enable,Disable;",
-		"P4o7,SCSP slot 3,Enable,Disable;",
-		"P4o8,SCSP slot 4,Enable,Disable;",
-		"P4o9,SCSP slot 5,Enable,Disable;",
-		"P4oA,SCSP slot 6,Enable,Disable;",
-		"P4oB,SCSP slot 7,Enable,Disable;",
-		"P4oC,SCSP slot 8,Enable,Disable;",
-		"P4oD,SCSP slot 9,Enable,Disable;",
-		"P4oE,SCSP slot 10,Enable,Disable;",
-		"P4oF,SCSP slot 11,Enable,Disable;",
-		"P4oG,SCSP slot 12,Enable,Disable;",
-		"P4oH,SCSP slot 13,Enable,Disable;",
-		"P4oI,SCSP slot 14,Enable,Disable;",
-		"P4oJ,SCSP slot 15,Enable,Disable;",
-		"P4oK,SCSP slot 16,Enable,Disable;",
-		"P4oL,SCSP slot 17,Enable,Disable;",
-		"P4oM,SCSP slot 18,Enable,Disable;",
-		"P4oN,SCSP slot 19,Enable,Disable;",
-		"P4oO,SCSP slot 20,Enable,Disable;",
-		"P4oP,SCSP slot 21,Enable,Disable;",
-		"P4oQ,SCSP slot 22,Enable,Disable;",
-		"P4oR,SCSP slot 23,Enable,Disable;",
-		"P4oS,SCSP slot 24,Enable,Disable;",
-		"P4oT,SCSP slot 25,Enable,Disable;",
-		"P4oU,SCSP slot 26,Enable,Disable;",
-		"P4oV,SCSP slot 27,Enable,Disable;",
-		"P4OS,SCSP slot 28,Enable,Disable;",
-		"P4OT,SCSP slot 29,Enable,Disable;",
-		"P4OU,SCSP slot 30,Enable,Disable;",
-		"P4OV,SCSP slot 31,Enable,Disable;",
-`endif
+		"P4o[43],SCSP Direct sound,Enable,Disable;",
+		"P4o[44],SCSP DSP sound,Enable,Disable;",
+		"P4o[45],CD audio,Enable,Disable;",
 
 		"-;",
 		"R0,Reset;",
-		"J1,A,B,C,Start,R,X,Y,Z,L;",
-		"jn,A,B,R,Start,Select,X,Y,L;", 
-		"jp,Y,B,A,Start,Select,L,X,R;",
+`ifndef STV_BUILD
+		"J1,A,B,C,Start,R,X,Y,Z,L,Coin;",
+`else
+		"J1,B1,B2,B3,B4,B5,B6,Start,Coin,Service,Test;",
+`endif
+//		"jn,A,B,R,Start,Select,X,Y,L;", 
+//		"jp,Y,B,A,Start,Select,L,X,R;",
 		"V,v",`BUILD_DATE
 	};
 
-	wire [63:0] status;
-	wire  [1:0] buttons;
-	wire [12:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
-	wire  [7:0] joy0_x0,joy0_y0,joy0_x1,joy0_y1,joy1_x0,joy1_y0,joy1_x1,joy1_y1;
-	wire        ioctl_download;
-	wire        ioctl_wr;
-	wire [24:0] ioctl_addr;
-	wire [15:0] ioctl_data;
-	wire  [7:0] ioctl_index;
-	reg         ioctl_wait = 0;
+	wire [127:0] status;
+	wire [ 15:0] menumask;
+	wire [  1:0] buttons;
+	wire [ 13:0] joystick_0,joystick_1,joystick_2,joystick_3,joystick_4;
+	wire [  7:0] joy0_x0,joy0_y0,joy0_x1,joy0_y1,joy1_x0,joy1_y0,joy1_x1,joy1_y1;
+	wire         ioctl_download;
+	wire         ioctl_wr;
+	wire [ 25:0] ioctl_addr;
+	wire [ 15:0] ioctl_data;
+	wire [  7:0] ioctl_index;
+	reg          ioctl_wait = 0;
 	
-	reg  [31:0] sd_lba = '0;
-	reg         sd_rd = 0;
-	reg         sd_wr = 0;
-	wire        sd_ack;
-	wire  [7:0] sd_buff_addr;
-	wire [15:0] sd_buff_dout;
-	wire [15:0] sd_buff_din;
-	wire        sd_buff_wr;
-	wire        img_mounted;
-	wire        img_readonly;
-	wire [63:0] img_size;
+	reg  [ 31:0] sd_lba = '0;
+	reg          sd_rd = 0;
+	reg          sd_wr = 0;
+	wire         sd_ack;
+	wire [  7:0] sd_buff_addr;
+	wire [ 15:0] sd_buff_dout;
+	wire [ 15:0] sd_buff_din;
+	wire         sd_buff_wr;
+	wire         img_mounted;
+	wire         img_readonly;
+	wire [ 63:0] img_size;
 	
-	wire        forced_scandoubler;
-	wire [10:0] ps2_key;
-	wire [24:0] ps2_mouse;
-	wire [15:0] ps2_mouse_ext;
+	wire         forced_scandoubler;
+	wire [ 10:0] ps2_key;
+	wire [ 24:0] ps2_mouse;
+	wire [ 15:0] ps2_mouse_ext;
 	
-	wire [35:0] EXT_BUS;
+	wire [ 64:0] RTC;
 	
-	wire [21:0] gamma_bus;
-	wire [15:0] sdram_sz;
-        
-	assign HDMI_BLACKOUT = ~status[1];
+	wire [ 35:0] EXT_BUS;
+	
+	wire [ 21:0] gamma_bus;
+	wire [ 15:0] sdram_sz;
 	
 	hps_io #(.CONF_STR(CONF_STR), .WIDE(1)) hps_io
 	(
@@ -391,9 +412,9 @@ module emu
 		.new_vmode(new_vmode),
 	
 		.status(status),
-		.status_in({status[63:8],region_req,status[5:0]}),
-		.status_set(region_set),
-		.status_menumask({1'b1,1'b1,~status[8],1'b1,~bk_ena}),
+		.status_in(status),
+		.status_set(0),
+		.status_menumask(menumask),
 	
 		.ioctl_download(ioctl_download),
 		.ioctl_index(ioctl_index),
@@ -420,21 +441,40 @@ module emu
 		.ps2_key(ps2_key),
 		.ps2_mouse(ps2_mouse),
 		.ps2_mouse_ext(ps2_mouse_ext),
+		
+		.RTC(RTC),
 	
 		.EXT_BUS(EXT_BUS)
 	);
 	
-	reg  [1:0] region_req = '0;
-	reg        region_set = 0;
+`ifndef STV_BUILD
+	assign menumask = {~lg_p2_ena, ~lg_p1_ena, snac, 1'b1, 1'b1, ~status[8], 1'b1, ~bk_ena};
+`else
+	assign menumask = {1'b1, 1'b1, ~status[8], 1'b1, ~bk_ena};
+`endif
 	
 	wire bios_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] != 2'h3);
 	wire cart_download = ioctl_download & (ioctl_index[5:2] == 4'b0000 && ioctl_index[1:0] == 2'h3);
 	wire save_download = ioctl_download & (ioctl_index[5:2] == 4'b0001);
+`ifndef STV_BUILD
 	wire cdd_download = ioctl_download & (ioctl_index[5:2] == 4'b0010);
 	wire cdboot_download = ioctl_download & (ioctl_index[5:2] == 4'b0011);
+`else
+	wire stv_download = ioctl_download & (ioctl_index[5:2] == 6'b000000);
 	
+	reg  [7:0] STV_MODE = '0;//[3:0] - chip (1: RSG, 2: 315-5838, 3: 315-5881, ...)
+	always @(posedge clk_sys) begin
+		if (stv_download && ioctl_wr) begin
+			STV_MODE <= ioctl_data[7:0];
+		end
+	end
+`endif
+	
+`ifndef STV_BUILD
 	wire [2:0] cart_type = status[23:21];
-	
+`else
+	wire [2:0] cart_type = 3'd5;
+`endif
 	
 	reg osd_btn = 0;
 //	always @(posedge clk_sys) begin
@@ -538,7 +578,7 @@ module emu
 	
 	wire reset = RESET | status[0] | buttons[1];
 	
-	reg rst_ram = 0;
+	reg rst_ram = 0, stv_res = 0;
 	reg download;
 	always @(posedge clk_sys) begin
 		reg [7:0] delay_cnt;
@@ -553,7 +593,7 @@ module emu
 		end
 	end
 	
-	wire rst_sys = reset | download | rst_ram;
+	wire rst_sys = reset | download | rst_ram | stv_res;
 	
 `ifndef MISTER_DUAL_SDRAM
 	wire fast_timing = status[28];
@@ -562,6 +602,7 @@ module emu
 `endif
 	
 	//region select
+`ifndef STV_BUILD
 	reg [7:0] cd_area_symbol;
 	always @(posedge clk_sys) begin
 		if (cdboot_download && ioctl_wr) begin
@@ -588,11 +629,19 @@ module emu
 									status[35:33] == 3'd5 ? 4'hA :	//Asia PAL area
 									status[35:33] == 3'd6 ? 4'hC :	//Europe PAL area
 																	cd_area_code;	//Auto
+`else
+	wire [3:0] area_code = 4'h1;
+`endif
 																	
+`ifndef STV_BUILD														
 	wire [15:0] joy1 = {~joystick_0[0]|joystick_0[1], ~joystick_0[1]|joystick_0[0], ~joystick_0[2]|joystick_0[3], ~joystick_0[3]|joystick_0[2], ~joystick_0[7], ~joystick_0[4], ~joystick_0[6], ~joystick_0[5],
 							  ~joystick_0[8], ~joystick_0[9], ~joystick_0[10], ~joystick_0[11], ~joystick_0[12], 3'b111};
 	wire [15:0] joy2 = {~joystick_1[0]|joystick_1[1], ~joystick_1[1]|joystick_1[0], ~joystick_1[2]|joystick_1[3], ~joystick_1[3]|joystick_1[2], ~joystick_1[7], ~joystick_1[4], ~joystick_1[6], ~joystick_1[5],
 							  ~joystick_1[8], ~joystick_1[9], ~joystick_1[10], ~joystick_1[11], ~joystick_1[12], 3'b111};
+`else
+	wire [13:0] joy1 = ~joystick_0[13:0];
+	wire [13:0] joy2 = ~joystick_1[13:0];
+`endif
 
 	wire snac = status[27];
 	reg  [6:0] USERJOYSTICK;
@@ -619,6 +668,9 @@ module emu
 	wire  [3:0] MEM_DQM_N;
 	wire        MEM_RD_N;
 	wire        MEM_WAIT_N;
+`ifdef STV_BUILD
+	wire        STVIO_CS_N;
+`endif
 	
 	wire [18:1] VDP1_VRAM_A;
 	wire [15:0] VDP1_VRAM_D;
@@ -689,7 +741,7 @@ module emu
 	wire [15:0] CD_RAM_Q;
 	wire        CD_RAM_RDY;
 	
-	wire [24:1] CART_MEM_A;
+	wire [25:1] CART_MEM_A;
 	wire [15:0] CART_MEM_D;
 	wire [15:0] CART_MEM_Q;
 	wire [ 1:0] CART_MEM_WE;
@@ -785,6 +837,9 @@ module emu
 		.RAML_CS_N(RAML_CS_N),
 		.RAMH_CS_N(RAMH_CS_N),
 		.RAMH_RFS(RAMH_RFS),
+`ifdef STV_BUILD
+		.STVIO_CS_N(STVIO_CS_N),
+`endif
 		.MEM_RD_N(MEM_RD_N),
 		.MEM_WAIT_N(MEM_WAIT_N),
 		
@@ -835,15 +890,25 @@ module emu
 		
 		.SMPC_CE(SMPC_CE),
 		.TIME_SET(~status[32]),
+		.RTC(RTC),
 		.SMPC_AREA(area_code),
 		.SMPC_DOTSEL(SMPC_DOTSEL),
+`ifndef STV_BUILD
 		.SMPC_PDR1I(snac ? USERJOYSTICK : SMPC_PDR1I),
+`else
+		.SMPC_PDR1I(7'h5C),
+`endif
 		.SMPC_PDR1O(SMPC_PDR1O),
 		.SMPC_DDR1(SMPC_DDR1),
+`ifndef STV_BUILD
 		.SMPC_PDR2I(SMPC_PDR2I),
+`else
+		.SMPC_PDR2I({6'b111111,STV_EEP_DO}),
+`endif
 		.SMPC_PDR2O(SMPC_PDR2O),
 		.SMPC_DDR2(SMPC_DDR2),
 		
+`ifndef STV_BUILD
 		.CD_CE(CD_CE),
 		.CD_CDATA(CD_CDATA),
 		.CD_HDATA(CD_HDATA),
@@ -860,14 +925,24 @@ module emu
 		.CD_RAM_CS(CD_RAM_CS),
 		.CD_RAM_Q(CD_RAM_Q),
 		.CD_RAM_RDY(CD_RAM_RDY),
+`endif
 		
+`ifndef STV_BUILD
 		.CART_MODE(cart_type),
+`else
+		.STV_RSG_MODE(STV_MODE[3:0] == 4'h1),
+		.STV_5838_MODE(STV_MODE[3:0] == 4'h2),
+`endif
 		.CART_MEM_A(CART_MEM_A),
 		.CART_MEM_D(CART_MEM_D),
 		.CART_MEM_WE(CART_MEM_WE),
 		.CART_MEM_RD(CART_MEM_RD),
 		.CART_MEM_Q(CART_MEM_Q),
 		.CART_MEM_RDY(CART_MEM_RDY),
+		
+`ifdef STV_BUILD
+		.STV_SW('1),
+`endif
 		
 		.R(R),
 		.G(G),
@@ -891,15 +966,100 @@ module emu
 		
 		.SCRN_EN(SCRN_EN & SCRN_EN2),
 		.SND_EN(SND_EN & SND_EN2),
-		.SLOT_EN(SLOT_EN),
 		.DBG_PAUSE(DBG_PAUSE),
 		.DBG_BREAK(DBG_BREAK),
 		.DBG_RUN(DBG_RUN),
 		.DBG_EXT(DBG_EXT)
 	);
 	
-	assign USERJOYSTICKOUT = SMPC_PDR1O;
+`ifdef STV_BUILD
+	wire [ 7:0] STVIO_DO;
+	STVIO STVIO
+	(
+		.CLK(clk_sys),
+		.RST_N(~rst_sys),
+		.CE_R(SYS_CE_R),
+		.CE_F(SYS_CE_F),
+		
+		.RES_N(1'b1),
+		
+		.A(MEM_A[6:1]),
+		.DI(MEM_DO[7:0]),
+		.DO(STVIO_DO),
+		.CS_N(STVIO_CS_N),
+		.RW_N(MEM_DQM_N[0]),
+		
+		.JOY1(joy1),
+		.JOY2(joy2)
+	);
 	
+	reg  [ 6: 1] STV_EEPROM_ADDR;
+	reg          STV_EEPROM_RD;
+	wire [15: 0] STV_EEPROM_Q;
+	wire         STV_EEPROM_RDY;
+	always @(posedge clk_sys) begin
+		reg [1:0] eep_state;
+		
+		if (reset) begin
+			STV_EEPROM_ADDR <= '0;
+			STV_EEPROM_RD <= 0;
+			STV_EEP_WREN <= 0;
+			eep_state <= 2'd0;
+			stv_res <= 1;
+		end else begin
+			STV_EEP_WREN <= 0;
+			case (eep_state)
+				2'd0: begin
+					STV_EEPROM_RD <= 1;
+					eep_state <= 2'd1;
+				end
+				
+				2'd1: if (STV_EEPROM_RDY) begin
+					STV_EEPROM_RD <= 0;
+					if (STV_EEPROM_ADDR == 6'd0 && STV_EEPROM_Q != 16'h5345) begin
+						//do not update, leave default eeprom.
+						eep_state <= 2'd3;
+					end else begin
+						STV_EEP_WREN <= 1;
+						eep_state <= 2'd2;
+					end
+				end
+				
+				2'd2: begin
+					STV_EEPROM_ADDR <= STV_EEPROM_ADDR + 6'd1;
+					if (STV_EEPROM_ADDR == 6'd63) eep_state <= 2'd3;
+					else eep_state <= 2'd0;
+				end
+				
+				2'd3: begin
+					stv_res <= 0;
+				end
+			endcase
+		end
+	end
+	
+	wire        STV_EEP_DO;
+	reg         STV_EEP_WREN;
+	E93C45 #("rtl/stv_eeprom.mif") STV_EEP 
+	(
+		.CLK(clk_sys),
+		.RST_N(~rst_sys),
+		
+		.DI(SMPC_PDR1O[4] & SMPC_DDR1[4]),
+		.DO(STV_EEP_DO),
+		.CS(SMPC_PDR1O[2] & SMPC_DDR1[2]),
+		.SK(SMPC_PDR1O[3] & SMPC_DDR1[3]),
+		
+		.MEM_A(STV_EEPROM_ADDR),
+		.MEM_DI(STV_EEPROM_Q),
+		.MEM_WREN(STV_EEP_WREN),
+		.MEM_DO()
+	);
+`endif
+	
+	assign USERJOYSTICKOUT = SMPC_PDR1O;	
+	
+`ifndef STV_BUILD
 	HPS2PAD PAD
 	(
 		.CLK(clk_sys),
@@ -929,8 +1089,147 @@ module emu
 		.JOY2_TYPE(status[20:18]),
 
 		.MOUSE(ps2_mouse),
-		.MOUSE_EXT(ps2_mouse_ext)
+		.MOUSE_EXT(ps2_mouse_ext),
+		
+		.LGUN_P1_TRIG(lg_p1_a),
+		.LGUN_P1_START(lg_p1_start),
+		.LGUN_P1_SENSOR(lg_p1_sensor),
+		
+		.LGUN_P2_TRIG(lg_p2_a),
+		.LGUN_P2_START(lg_p2_start),
+		.LGUN_P2_SENSOR(lg_p2_sensor)		
 	);
+	
+	
+`ifndef DEBUG
+	wire lg_p1_ena = (status[17:15]==3'd1);
+	
+	wire       lg_p1_sensor;
+	wire       lg_p1_a;
+	wire       lg_p1_b;
+	wire       lg_p1_c;
+	wire       lg_p1_start;
+
+	wire       gun_p1_xy_mode    = status[46];
+	wire       gun_p1_btn_mode   = status[47];
+	wire [1:0] gun_p1_cross_size = status[49:48];
+	wire [7:0] gun_p1_sensor_delay = 8'd2;
+
+	wire CROSS_DRAW_P1;
+	wire [2:0] lg_p1_target = {2'b00, CROSS_DRAW_P1};	// RED Crosshair.
+	
+	lightgun  lightgun_p1
+	(
+		.CLK(clk_sys),
+		.RESET(~rst_sys),
+
+		.MOUSE(ps2_mouse),
+		.MOUSE_XY(gun_p1_xy_mode),		// 0=Use joystick to control LGun XY.
+												// 1=Use Mouse to control LGun XY.
+
+		.JOY_X(joy0_x0),					// Player 1 joystick.
+		.JOY_Y(joy0_y0),
+		.JOY(joystick_0),
+
+		.BTN_MODE(gun_p1_btn_mode),	// 0=Use Joystick buttons for LG.
+												// 1=Use Mouse buttons for LG.
+		
+		.RELOAD(1'b1),						// Enable Auto-Reload.
+
+		.HDE(HBL_N),						// Blanking signals are Active-Low. So should act as "DE" (Data Enable) signals when High!
+		.VDE(VBL_N),						// ie. No need to invert here.
+		.CE_PIX(DCLK),
+		
+		.FIELD(FIELD),
+		.INTERLACE(INTERLACE),
+		.HRES(HRES), 						// input [1:0]   [1]:0-normal,1-hi-res; [0]:0-320p,1-352p
+		.VRES(VRES), 						// input [1:0]   0-224,1-240,2-256
+		.DCE_R(DCE_R),
+		
+		.SIZE(gun_p1_cross_size),
+		.SENSOR_DELAY(gun_p1_sensor_delay),	// Originally based on the MD lightgun module.
+														// Not sure if any Saturn LG games use polling, or even need this? EA
+		.CROSS_DRAW(CROSS_DRAW_P1),
+		
+		.SENSOR(lg_p1_sensor),		// output  SENSOR  ("Light detected" signal, to VDP2).
+		.BTN_A(lg_p1_a),				// output  BTN_A   (used as the Trigger "button" signal, to HPS2PAD).
+		.BTN_B(lg_p1_b),				// output  BTN_B   (used for Auto-Reload in this module - Don't use the BTN_B / lg_p1_b output when using the RELOAD option!)
+		.BTN_C(lg_p1_c),
+		.BTN_START(lg_p1_start)		// (used as the Start button signal, to HPS2PAD).
+	);
+
+
+	wire lg_p2_ena = (status[20:18]==3'd1);
+	
+	wire       lg_p2_sensor;
+	wire       lg_p2_a;
+	wire       lg_p2_b;
+	wire       lg_p2_c;
+	wire       lg_p2_start;
+
+	wire       gun_p2_xy_mode    = status[57];
+	wire       gun_p2_btn_mode   = status[58];
+	wire [1:0] gun_p2_cross_size = status[60:59];
+	wire [7:0] gun_p2_sensor_delay = 8'd2;
+	
+	wire CROSS_DRAW_P2;
+	wire [2:0] lg_p2_target = {1'b0, CROSS_DRAW_P2, 1'b0};	// GREEN Crosshair.
+
+	lightgun  lightgun_p2
+	(
+		.CLK(clk_sys),
+		.RESET(~rst_sys),
+
+		.MOUSE(ps2_mouse),
+		.MOUSE_XY(gun_p2_xy_mode),		// 0=Use joystick to control LGun XY.
+												// 1=Use Mouse to control LGun XY.
+
+		.JOY_X(joy1_x0),					// Player 2 joystick.
+		.JOY_Y(joy1_y0),
+		.JOY(joystick_1),
+
+		.BTN_MODE(gun_p2_btn_mode),	// 0=Use Joystick buttons for LG.
+												// 1=Use Mouse buttons for LG.
+		
+		.RELOAD(1'b1),						// Enable Auto-Reload.
+
+		.HDE(HBL_N),						// Blanking signals are Active-Low. So should act as "DE" (Data Enable) signals when High!
+		.VDE(VBL_N),						// ie. No need to invert here.
+		.CE_PIX(DCLK),
+		
+		.FIELD(FIELD),
+		.INTERLACE(INTERLACE),
+		.HRES(HRES), 						// input [1:0]   [1]:0-normal,1-hi-res; [0]:0-320p,1-352p
+		.VRES(VRES), 						// input [1:0]   0-224,1-240,2-256
+		.DCE_R(DCE_R),
+		
+		.SIZE(gun_p2_cross_size),
+		.SENSOR_DELAY(gun_p2_sensor_delay),	// Originally based on the MD lightgun module.
+														// Not sure if any Saturn LG games use polling, or even need this? EA
+		.CROSS_DRAW(CROSS_DRAW_P2),
+		
+		.SENSOR(lg_p2_sensor),		// output  SENSOR  ("Light detected" signal, to VDP2).
+		.BTN_A(lg_p2_a),				// output  BTN_A   (used as the Trigger "button" signal, to HPS2PAD).
+		.BTN_B(lg_p2_b),				// output  BTN_B   (used for Auto-Reload in this module - Don't use the BTN_B / lg_p1_b output when using the RELOAD option!)
+		.BTN_C(lg_p2_c),
+		.BTN_START(lg_p2_start)		// (used as the Start button signal, to HPS2PAD).
+	);
+`else
+	wire lg_p1_ena = 0;
+	wire lg_p1_a = 0;
+	wire lg_p1_start = 0;
+	wire lg_p1_sensor = 0;
+	wire [2:0] lg_p1_target = '0;
+	wire [1:0] gun_p1_cross_size = '0;
+		
+	wire lg_p2_ena = 0;
+	wire lg_p2_a = 0;
+	wire lg_p2_start = 0;
+	wire lg_p2_sensor = 0;	
+	wire [2:0] lg_p2_target = '0;
+	wire [1:0] gun_p2_cross_size = '0;
+`endif
+
 	
 	wire [13:1] CD_BUF_ADDR;
 	wire [15:0] CD_BUF_DI;
@@ -962,6 +1261,7 @@ module emu
 		.CD_CK(CD_CK),
 		.CD_AUDIO(CD_AUDIO)
 	);
+`endif
 
 	//SDRAM1
 	sdram1 sdram1
@@ -1015,15 +1315,13 @@ module emu
 //		if (~ddr_busy[7] && old_busy) ioctl_wait <= 0;
 		ioctl_wait <= bios_busy;
 	end
-	wire [25:1] IO_ADDR = cart_download ? {4'b0011,ioctl_addr[21:1]} : {7'b0000000,ioctl_addr[18:1]};
+	wire [26:1] IO_ADDR = cart_download ? {1'b1,ioctl_addr[25:1]} : {8'b00000000,ioctl_addr[18:1]};
 	wire [15:0] IO_DATA = {ioctl_data[7:0],ioctl_data[15:8]};
 	wire        IO_WR = (bios_download | cart_download) & ioctl_wr;
 	
-	wire [31:0] ddr_do[10];
-	wire        ddr_busy[10];
-	wire [15:0] cdram_do,raml_do,vdp1vram_do,vdp1fb_do,cdbuf_do,cart_do,bsram_do;
+	wire [15:0] cdram_do,raml_do,vdp1vram_do,vdp1fb_do,cdbuf_do,cart_do,eeprom_do,bsram_do;
 	wire [31:0] ramh_do;
-	wire        cdram_busy,raml_busy,ramh_busy,vdp1vram_busy,vdp1fb_busy,cdbuf_busy,cart_busy,bios_busy,bsram_busy;
+	wire        cdram_busy,raml_busy,ramh_busy,vdp1vram_busy,vdp1fb_busy,cdbuf_busy,cart_busy,eeprom_busy,bios_busy,bsram_busy;
 	ddram ddram
 	(
 		.*,
@@ -1046,10 +1344,17 @@ module emu
 		.ramh_busy(ramh_busy),
 		
 		//CD RAM
+`ifndef STV_BUILD
 		.cdram_addr(CD_RAM_A[18:1]),
 		.cdram_din (CD_RAM_D),
 		.cdram_wr  (CD_RAM_WE & {2{CD_RAM_CS}}),
 		.cdram_rd  (CD_RAM_RD & CD_RAM_CS),
+`else
+		.cdram_addr('0),
+		.cdram_din ('0),
+		.cdram_wr  ('0),
+		.cdram_rd  (0),
+`endif
 		.cdram_dout(cdram_do),
 		.cdram_busy(cdram_busy),
 	
@@ -1079,8 +1384,13 @@ module emu
 		.vdp1fb_busy(vdp1fb_busy),
 		
 		//CD BUF
+`ifndef STV_BUILD
 		.cdbuf_addr(CD_BUF_ADDR),
 		.cdbuf_rd  (CD_BUF_RD),
+`else
+		.cdbuf_addr('0),
+		.cdbuf_rd  (0),
+`endif
 		.cdbuf_dout(cdbuf_do),
 		.cdbuf_busy(cdbuf_busy),
 		
@@ -1091,13 +1401,24 @@ module emu
 		.cart_wr  ('0),
 		.cart_rd  (0),
 `else
-		.cart_addr(CART_MEM_A[21:1]),
+		.cart_addr(CART_MEM_A),
 		.cart_din (CART_MEM_D),
 		.cart_wr  (CART_MEM_WE),
 		.cart_rd  (CART_MEM_RD),
 `endif
 		.cart_dout(cart_do),
 		.cart_busy(cart_busy),
+		
+		//STV EEPROM
+`ifndef STV_BUILD
+		.eeprom_addr('0),
+		.eeprom_rd  (0),
+`else
+		.eeprom_addr(STV_EEPROM_ADDR),
+		.eeprom_rd  (STV_EEPROM_RD),
+`endif
+		.eeprom_dout(eeprom_do),
+		.eeprom_busy(eeprom_busy),
 	
 		//BIOS/CART load
 		.bios_addr(IO_ADDR),
@@ -1116,6 +1437,7 @@ module emu
 	assign VDP1_VRAM_Q = vdp1vram_do;
 	assign VDP1_VRAM_RDY = ~vdp1vram_busy;
 
+`ifndef STV_BUILD
 	assign CD_BUF_DI = cdbuf_do;
 	assign CD_BUF_RDY = ~cdbuf_busy;
 	
@@ -1124,6 +1446,13 @@ module emu
 	
 	assign CD_RAM_Q = cdram_do;
 	assign CD_RAM_RDY = ~cdram_busy;
+`else
+	assign CART_MEM_Q = CART_MEM_A >= (26'h0200000>>1) ? {cart_do[7:0],cart_do[15:8]} : cart_do;
+	assign CART_MEM_RDY = ~cart_busy;
+	
+	assign STV_EEPROM_Q = eeprom_do;
+	assign STV_EEPROM_RDY = ~eeprom_busy;
+`endif
 
 
 `ifdef MISTER_DUAL_SDRAM
@@ -1155,11 +1484,31 @@ module emu
 `endif
 	
 `ifdef MISTER_DUAL_SDRAM
-	assign MEM_DI     = !RAMH_CS_N ? sdr2_do : raml_do;
-	assign MEM_WAIT_N = !RAMH_CS_N ? ~sdr2_busy : ~raml_busy;
+
+	assign MEM_DI     = !RAMH_CS_N ? sdr2_do : 
+`ifdef STV_BUILD
+	                    !STVIO_CS_N ? {24'hFFFFFF,STVIO_DO} : 
+`endif
+							  raml_do;
+	assign MEM_WAIT_N = !RAMH_CS_N ? ~sdr2_busy : 
+`ifdef STV_BUILD
+	                    !STVIO_CS_N ? 1'b1 : 
+`endif
+							  ~raml_busy;
+							  
 `else
-	assign MEM_DI     = !RAMH_CS_N ? ramh_do : raml_do;
-	assign MEM_WAIT_N = !RAMH_CS_N ? ~ramh_busy : ~raml_busy;
+
+	assign MEM_DI     = !RAMH_CS_N ? ramh_do : 
+`ifdef STV_BUILD
+	                    !STVIO_CS_N ? {24'hFFFFFF,STVIO_DO} : 
+`endif
+							  raml_do;
+	assign MEM_WAIT_N = !RAMH_CS_N ? ~ramh_busy : 
+`ifdef STV_BUILD
+	                    !STVIO_CS_N ? 1'b1 : 
+`endif
+							  ~raml_busy;
+							  
 `endif
 
 
@@ -1519,18 +1868,81 @@ module emu
 	end
 	
 //`ifndef DEBUG
-//	wire [2:0] scale = status[3:1];
-//	wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
+	wire [2:0] scale = status[3:1];
+	wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
 //	wire scandoubler = ~INTERLACE & (|scale | forced_scandoubler);
 //	wire hq2x = (scale == 1);
 //`else
-	wire [2:0] sl = '0;
+//	wire [2:0] sl = '0;
 	wire scandoubler = 0;
 	wire hq2x = 0;
 //`endif
 
 	assign CLK_VIDEO = clk_sys;
 	assign VGA_SL = {~INTERLACE,~INTERLACE} & sl[1:0];
+	
+	//horizontal crop
+`ifndef DEBUG
+	wire hcrop_en = status[64];
+
+	reg [9:0] h_count;
+	wire active_video = ~cofi_hbl;
+
+	always @(posedge clk_sys) begin
+		if (DCLK) begin
+			h_count <= active_video ? h_count + 10'd1 : 10'd0;
+		end
+	end
+
+	wire [9:0] active_width = (HRES[1] && HRES[0]) ? 10'd704 :
+	(HRES[1]) ? 10'd640 :
+	(HRES[0]) ? 10'd352 :
+	10'd320;
+
+	wire [9:0] crop_amount = hcrop_en ? ((active_width == 10'd704) ? 10'd4 : (INTERLACE ? 10'd4 : 10'd2)) : 10'd0;
+
+	wire hcrop_blank = (h_count < crop_amount) || (h_count >= (active_width - crop_amount));
+	wire hblank_cropped = cofi_hbl | (hcrop_en & hcrop_blank);
+	
+	wire [7:0] cofi_r, cofi_g, cofi_b;
+	wire       cofi_hs, cofi_vs, cofi_hbl, cofi_vbl;
+
+	cofi coffee (
+		.clk(clk_sys),
+		.pix_ce(DCLK),          
+		.enable(status[50]),    
+		.hblank(~HBL_N),        
+		.vblank(~VBL_N),
+		.hs(~HS_N),
+		.vs(~VS_N),
+		.red(R),
+		.green(G),
+		.blue(B),
+		.hblank_out(cofi_hbl),
+		.vblank_out(cofi_vbl),
+		.hs_out(cofi_hs),
+		.vs_out(cofi_vs),
+		.red_out(cofi_r),
+		.green_out(cofi_g),
+		.blue_out(cofi_b)
+	);
+`else
+	wire [7:0] cofi_r = R, cofi_g = G, cofi_b = B;
+	wire cofi_hs = ~HS_N, cofi_vs = ~VS_N;
+	wire hblank_cropped = ~HBL_N, cofi_vbl = ~VBL_N;
+`endif
+
+`ifndef STV_BUILD
+	wire lg_p1_targ_draw = (|lg_p1_target) && lg_p1_ena && (gun_p1_cross_size < 2'd3);
+	wire lg_p2_targ_draw = (|lg_p2_target) && lg_p2_ena && (gun_p2_cross_size < 2'd3);
+	wire [7:0] mixer_r = lg_p1_targ_draw ? {8{lg_p1_target[0]}} : lg_p2_targ_draw ? {8{lg_p2_target[0]}} : cofi_r;
+	wire [7:0] mixer_g = lg_p1_targ_draw ? {8{lg_p1_target[1]}} : lg_p2_targ_draw ? {8{lg_p2_target[1]}} : cofi_g;
+	wire [7:0] mixer_b = lg_p1_targ_draw ? {8{lg_p1_target[2]}} : lg_p2_targ_draw ? {8{lg_p2_target[2]}} : cofi_b;
+`else
+	wire [7:0] mixer_r = cofi_r;
+	wire [7:0] mixer_g = cofi_g;
+	wire [7:0] mixer_b = cofi_b;
+`endif
 
 	video_mixer #(.LINE_LENGTH((352*2)+8), .HALF_DEPTH(0), .GAMMA(1)) video_mixer
 	(
@@ -1541,22 +1953,22 @@ module emu
 		.hq2x(hq2x),	
 		.freeze_sync(),
 	
-		.R(R),
-		.G(G),
-		.B(B),
+		.VGA_DE(vga_de),
+		.R(mixer_r),
+		.G(mixer_g),
+		.B(mixer_b),
 	
 		// Positive pulses.
-		.HSync(~HS_N),
-		.VSync(~VS_N),
-		.HBlank(~HBL_N),
-		.VBlank(~VBL_N)
+		.HSync(cofi_hs), 
+		.VSync(cofi_vs),  
+		.HBlank(hblank_cropped),
+		.VBlank(cofi_vbl) 
 	);
 
-
+	
 	//debug
 	reg  [ 7: 0] SCRN_EN = 8'b11111111;
 	reg  [ 2: 0] SND_EN = 3'b111;
-	reg  [31: 0] SLOT_EN = '1;
 	reg          DBG_PAUSE = 0;
 	reg          DBG_BREAK = 0;
 	reg          DBG_RUN = 0;
@@ -1615,11 +2027,11 @@ module emu
 	
 	reg  [7:0] SCRN_EN2 = 8'b11111111;
 	reg  [2:0] SND_EN2 = 3'b111;
-`ifdef DEBUG
-	assign SLOT_EN = {~status[31:28],~status[63:36]};
-`else
+
+`ifndef DEBUG
 	assign SCRN_EN2 = ~status[42:36];
 	assign SND_EN2 = ~status[45:43];
 `endif
+
 
 endmodule

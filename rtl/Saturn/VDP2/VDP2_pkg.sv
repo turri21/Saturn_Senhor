@@ -2028,7 +2028,7 @@ package VDP2_PKG;
 	parameter RotTbl_t ROT_NULL = {SCNST_NULL, SCNST_NULL, SCNST_NULL,
 	                               SCNINC_NULL, SCNINC_NULL, SCNINC_NULL, SCNINC_NULL,
 											 MATR_NULL, MATR_NULL, MATR_NULL, MATR_NULL, MATR_NULL, MATR_NULL,
-											 SCNCRD_NULL, SCNCRD_NULL, SCNCRD_NULL,
+											 SCNCRD_NULL, SCNCRD_NULL, SCNCRD_NULL, 16'h0000,
 											 SCNCRD_NULL, SCNCRD_NULL, SCNCRD_NULL, 16'h0000,
 											 SHIFT_NULL, SHIFT_NULL, 
 											 SCALL_NULL, SCALL_NULL,
@@ -2168,11 +2168,12 @@ package VDP2_PKG;
 		return ({RPTA,1'b0} & ~19'h00040) + {RP_POS,1'b0};
 	endfunction
 	
-	function bit [19:1] RxCTAddr(input bit [15:0] RxKAst, input bit [18:0] RxKA, input bit [2:0] RxKTAOS, input bit RxKDBS);
+	function bit [19:1] RxCTAddr(input RotCoord_t RxKAst, input RotAddr_t RxKA, input bit [2:0] RxKTAOS, input bit RxKDBS);
 		bit   [19:1] addr;
 		bit   [18:0] offs;
+		bit   [15:0] frac;
 		
-		offs = {RxKTAOS,RxKAst} + RxKA;
+		{offs,frac} = {RxKTAOS,RxKAst} + RxKA;
 		
 		case (RxKDBS)
 			1'b0: addr = {offs[17:0],1'b0};	//2 words
@@ -2275,7 +2276,7 @@ package VDP2_PKG;
 		4'hF: begin MSB = 1'b0    ; NSD = &DATA[ 7:1] & ~DATA[0]; TPEN = 1;        PR = {1'b0    ,1'b0    ,1'b0    }; CC = {1'b0    ,DATA[ 7],DATA[ 6]}; DC = {3'b000  ,DATA[ 7:0]}; end
 		endcase
 		
-		TP = ~|DATA[14:0];
+		TP = ~((|DATA[14:8] & ~SPCTL.SPTYPE[3]) | |DATA[7:0]);
 		
 		RGB888 = {DATA[14:10],3'b000,DATA[9:5],3'b000,DATA[4:0],3'b000};
 		RGB_TP = TP & TPEN & SPCTL.SPWINEN;
@@ -2284,7 +2285,7 @@ package VDP2_PKG;
 		TSD = MSB &  TP & TPSDSL & ~SPCTL.SPWINEN;
 		PAL_TP = TP | NSD | TSD;
 		
-		if (SPCTL.SPCLMD && DATA[15])
+		if (SPCTL.SPCLMD && DATA[15] && !SPCTL.SPTYPE[3])
 			SDD = {1'b0, RGB_TP, 1'b0,        1'b0, 3'h0, 3'h0,        RGB888};
 		else
 			SDD = {1'b1, PAL_TP,  MSB, NSD|MSD|TSD,   PR,   CC, {13'h0000,DC}};
@@ -2352,11 +2353,12 @@ package VDP2_PKG;
 		bit         COEN;
 		bit         COSL;
 		bit         SDEN;
+		bit         BOKEN;
 		bit         LCEN;
 		bit         P;
 		bit [23: 0] DC;
 	} ScreenDot_t;
-	parameter ScreenDot_t SD_NULL = {3'b000,1'b0,1'b0,5'b00000,1'b0,1'b0,1'b0,1'b0,1'b0,24'h000000};
+	parameter ScreenDot_t SD_NULL = {3'b000,1'b0,1'b0,5'b00000,1'b0,1'b0,1'b0,1'b0,1'b0,1'b0,24'h000000};
 	
 
 	//Color calculation
@@ -2406,12 +2408,12 @@ package VDP2_PKG;
 	endfunction
 	
 	function DotColor_t ExtColorCalc(input DotColor_t DCSEC, input bit CCENSEC, input DotColor_t DCTHD, input bit PTHD, input bit CCENTHD, input DotColor_t DCFTH, 
-	                                 input bit LCEN, input bit [1:0] CRMD, input bit EXCCEN);
+	                                 input bit LCEN, input bit BOKEN, input bit [1:0] CRMD, input bit EXCCEN);
 		bit RTSEC,RTTHD;
 		DotColor_t TEMP;
 
-		RTSEC = CCENSEC & ~(|CRMD && PTHD) & EXCCEN;
-		RTTHD = CCENTHD & LCEN & EXCCEN;
+		RTSEC = (CCENSEC & ~(|CRMD && PTHD) & EXCCEN) | (BOKEN & ~|CRMD);
+		RTTHD = (CCENTHD & LCEN & EXCCEN) | (BOKEN & ~|CRMD);
 		
 		TEMP.R = ColorCalcExtRatio(DCSEC.R, DCTHD.R, DCFTH.R, RTSEC, RTTHD);
 		TEMP.G = ColorCalcExtRatio(DCSEC.G, DCTHD.G, DCFTH.G, RTSEC, RTTHD);
