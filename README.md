@@ -1,6 +1,6 @@
 -=(Saturn_Senhor notes)=-
 
-Tested: Working Video 720p, 1080p & Sound
+Tested: Working Video 720p, 1080p & Sound.
 
 Important: Senhor does not support Dual SDRAM (at least for now).
 
